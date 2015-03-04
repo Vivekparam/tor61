@@ -10,9 +10,14 @@ def main():
 	router.addProxy(proxy)
 	# Now, both sides have the state they need
 
-	proxy.start()
-	router.start()
-
+	ret = proxy.start()
+	if(ret != 1) {
+		print "Error starting proxy."
+	}
+	ret = router.start()
+	if(ret != 1) {
+		print "Error starting router."
+	}
 	# Todo: health check on each other?
 
 main()

@@ -9,6 +9,8 @@ import string
 import re
 from pprint import pprint
 from enum import Enum
+from Queue import Queue 
+
 
 
 class TorProxy(object):
@@ -57,32 +59,36 @@ class TorProxy(object):
 		timer.start()
 		connection['timerLock'].release() 
 
-	def closeSockets(self, clientsocket, hostsocket):
-		clientsocket.close()	
-		self.router.(closeStream(pass something here))
-
 	# a thread for tunnel from client -> proxy -> server
 	def handle_forwarding_to_router(self, thisConnection):
 		try:
+			stream_obj = thisConnection['stream_obj']
 			while True:
-				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA) # TODO: remove?
 				data = thisConnection['clientsocket'].recv(SOCKET_RECV_SIZE) 
 				reset_timer(thisConnection)
 				if data:
 					# thisConnection['hostsocket'].sendall(data)
 					# TODO: Write to buffer to router side
-					thisConnection['stream_obj'].sendAllToRouter(data)
+					stream_obj.sendAllToRouter(data)
 				elif thisConnection['isClosed']:
-					break
-				else:
 					break
 		except Exception as e:
 			pprint(e)
 		finally:
+			# TODO is this right?
+			stream_obj.closeStream()
 			closeSocket(thisConnection['clientsocket'])
 			terminate()
 
-	# ***** RENAME THIS CHUNK LATER ***** #
+	# Does everything needed to deal with a new request from
+	# a client.
+	# Parses initial header from client, then contacts 
+	# router-side to convey the request. This will direct
+	# the router to create a stream through the Tor network 
+	# and connect to the requested destination at the other end
+	# of the circuit. Sends any response from other end back to client.
+	# Keeps connection open if client requested a 
+	# CONNECT, otherwise, simpy forwards the request.
 	def handle_connection(self, clientsocket, address):
 		connection_closed = False
 		connect_tunneling = False
@@ -166,7 +172,6 @@ class TorProxy(object):
 			clientsocket.send('HTTP/1.0 200 OK\r\n\r\n')
 			thisConnection = {
 				"clientsocket" : clientsocket,
-				"hostsocket" : hostsocket,
 				"isClosed": False,
 				"timerLock" : threading.Lock()
 				"stream_obj" 	: stream_obj
@@ -184,24 +189,28 @@ class TorProxy(object):
 			stream_obj.sendAllToRouter(header_buffer + "\r\n")
 			stream_obj.closeStream()
 
+		# Here, we become the Proxy-side buffer-to-client writing thread
 		try:
 			while True:
 				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA)
-				data = hostsocket.recv(SOCKET_RECV_SIZE)
+				# data = hostsocket.recv(SOCKET_RECV_SIZE)
+				data = 
 				if data: 
 					# ####clientsocket.sendall(data)
-					# buffer.write(data)
+					data = stream_obj.getNextFromRouter()
 				reset_timer(thisConnection)
 				elif connect_tunneling:
 					if thisConnection['isClosed']:
+						stream_obj.closeStream()
 						break
-				else:
-					break
+				# else:
+				# 	break
 		except Exception as e:
 			pprint(e)
 		finally:
 			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
-			closeSockets(clientsocket, hostsocket)
+			clientsocket.close()
+			stream_obj.closeStream()
 			terminate()
 
 
