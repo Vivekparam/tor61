@@ -273,10 +273,10 @@ class TorProxy(object):
 		terminate()
 
 	# ****** PROXY-TO-SERVER communications ****
-	def connect_to_server(buffer, ???):
+	# host_address = (host, hostport)
+	def connect_to_server(host_address, stream_obj):
 		# Opens a socket and connect to the server host
 		hostsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		host_address = (host, hostport)
 		# print "Attempting connections to " + host + ":" + str(hostport)
 		connect_ret = hostsocket.connect_ex(host_address) 
 
@@ -293,8 +293,7 @@ class TorProxy(object):
 				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 				data = hostsocket.recv(SOCKET_RECV_SIZE)
 				if data: 
-					# ####clientsocket.sendall(data)
-					# buffer.write(data)
+					stream.sendAllToRouter(data)
 				reset_timer(thisConnection)
 				elif connect_tunneling:
 					if thisConnection['isClosed']:
@@ -307,4 +306,5 @@ class TorProxy(object):
 			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
 			closeSockets(clientsocket, hostsocket)
 			terminate()
+
 

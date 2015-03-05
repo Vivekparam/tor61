@@ -2,10 +2,18 @@
 # CSE 461 Winter 2015
 
 from Queue import Queue 
+from enum import Enum
+from threading
 
 # A stream object represents 
 # a Tor stream on a circuit
 class TorStream(object):
+	State = enum(init=0, running=1, stopped=2, failed=4)
+
+	# class State(Enum):
+	# 	init = 0
+	# 	running = 1
+	# 	stopped = 2
 
 	def __init__(self, streamNum):
 		# go through the entire stream creation process as outlined
@@ -14,8 +22,36 @@ class TorStream(object):
 		self.bufferToProxy = Queue()
 		self.bufferToRouter = Queue()
 		self.streamNum = streamNum
+		self.state = State.init
+		self.connected_condition = threading.Condtion()
+
+	def lockForConnected(self):
+		self.connected_condition.acquire()
+
+	def unlockForConnected(self):
+		self.connected_condition.release()
+
+	def waitForConnected(self, timeout):
+		self.connected_condition.wait(timeout)
+
+	def notifyConnected(self):
+		self.connected_condition.acquire()
+		self.state = State.running
+		self.connected_condition.notify()
+		self.connected_condition.release()
+
+	def notifyFailed(self):
+		self.connected_condition.acquire()
+		self.connected_condition.success = 0
+		self.state = State.failed
+		self.connected_condition.notify()
+		self.connected_condition.release()
+
+	def checkState(self):
+
 
 	def closeStream(self):
+		self.state = State.stopped
 
 	# Define the operations which transfer data from 
 	# Buffer to Proxy and vice-versa
@@ -31,3 +67,10 @@ class TorStream(object):
 
 	def sendAllToProxy(self, data):
 		self.bufferToProxy.put(data)
+
+	def sendOKOverTCP(self):
+		ok_message = ('HTTP/1.0 200 OK\r\n\r\n')
+		self.bufferToProxy.put(ok_message)
+
+
+
