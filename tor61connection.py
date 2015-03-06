@@ -76,9 +76,14 @@ class Tor61Connection(object):
 			print "Did not get a response for OPEN within timeout."
 			return -2
 
-	def createCircuit():
-		circuit_obj = Circuit(self.source_outgoing_c_id)
-		self.circuit_id_to_circuit_objs[self.source_outgoing_c_id] = circuit_obj
+	def createCircuit(we_are_source):
+		if (we_are_source):
+			circuit_obj = Circuit(self.source_outgoing_c_id)
+			self.circuit_id_to_circuit_objs[self.source_outgoing_c_id] = circuit_obj
+		else:
+			circuit_obj = Circuit(self.next_circuit_num)
+			self.circuit_id_to_circuit_objs[self.next_circuit_num] = circuit_obj
+			self.next_circuit_num += 1
 
 	# Q: do we know the opener_agent_id, opened_agent_id before getting the OPEN?
 	def startAsOpened(self):
@@ -93,7 +98,7 @@ class Tor61Connection(object):
 		self.open_condition.wait(10) # timeout in secs
 		self.open_condition.release()
 
-		startReaderWriter()	# writer notifies 
+		startReaderWriter()	# reader -> handle cell notifies 
 
 		if (self.state == State.opened):
 			return 1
@@ -171,7 +176,6 @@ class Tor61Connection(object):
 			self.onCreate(cell)
 
 		elif(cell_type == CELL_TYPE_CREATED):
-			# should we check if the cid matches?
 			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
 			circuit_obj.onCreated()
 
@@ -219,7 +223,6 @@ class Tor61Connection(object):
 		else:
 			print "UNKNOWN CELL TYPE " , cell_type 
 			return -1
-
 		self.socket_buffer.put(cell)
 
 	def getCircuit(c_id):
@@ -229,9 +232,8 @@ class Tor61Connection(object):
 	def sendRelay(self, c_id, stream_id, digest, relay_cmd, body):
 		send(c_id, CELL_TYPE_RELAY, stream_id=stream_id, digest=digest, body_length=0, relay_cmd=relay_cmd, body=body)
 
-	def createNewStream(host_addr):
-		stream_obj = circuit_id_to_circuit_objs.get(self.source_outgoing_c_id).createStream()
-		return stream_obj
+	def sendRelayCell(self, cell):
+		self.socket_buffer.put(cell)
 
 	def getSourceOutgoingCircuitId(self):
 		return self.source_outgoing_c_id

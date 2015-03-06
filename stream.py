@@ -49,7 +49,7 @@ class TorStream(object):
 
 	def checkState(self):
 
-
+		
 	def closeStream(self):
 		self.state = State.stopped
 
