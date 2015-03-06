@@ -2,8 +2,11 @@
 # CSE 461 Winter 2015
 import struct
 import threading
+from enum import Enum
 
 class Tor61Connection(object):
+	State = enum(init=0, opened=1, stopped=2, failed=3) 
+	
 	ZERO_CIRCUIT = 0x0000
 
 	# ***** CELL TYPES ***** #
@@ -22,11 +25,9 @@ class Tor61Connection(object):
 	PADDING_RELAY = 498
 
 
-	def __init__(self, partner_ip_port, socket, we_are_initiator, opener_agent_id, opened_agent_id, router):
+	def __init__(self, partner_ip_port, socket, we_are_initiator):
 		self.circuit_id_to_circuit_objs = {}
 		self.we_are_initiator = we_are_initiator
-		self.opener_agent_id = opener_agent_id
-		self.opened_agent_id = opened_agent_id
 		self.partner_ip_port = partner_ip_port
 		self.source_outgoing_c_id = 1
 
@@ -37,8 +38,7 @@ class Tor61Connection(object):
 		# We only put packaged cells into this queue
 		self.socket_buffer = Queue()
 		self.opened_condition = threading.Condition()
-
-		startReaderWriter()
+		self.open_condition = threading.Condition()
 
 	# Open starts this tor61 connection.
 	# In other words, it either sends back a OPENED
@@ -47,12 +47,13 @@ class Tor61Connection(object):
 	# Returns 1 if open operation was successful
 	# Returns -1 if got OPEN_FAILED
 	# returns -2 if no response
-	def open(self):
+	def startAsOpener(self, opener_agent_id, opened_agent_id):
+		self.opener_agent_id = opener_agent_id
+		self.opened_agent_id = opened_agent_id
 		if(!we_are_initiator):
-			print "Open should only be called if we initiated the connection."
+			print "startAsOpener should only be called if we initiated the connection."
 			return -1
 
-		retval = -1;
 		cell = None
 		self.next_circuit_num = 3
 		# we need to send an open, then wait for resp
@@ -63,78 +64,47 @@ class Tor61Connection(object):
 		self.opened_condition.wait(10) # secs
 		self.opened_condition.release()
 		
-		cell_type = self.opened_condition.cell_type
+		# cell_type = self.opened_condition.cell_type
+		startReaderWriter() # need to first wait, then read from the reading thread
 
-		if (cell_type == CELL_TYPE_OPENED):
-			retval = 1
-		elif (cell_type == CELL_TYPE_OPEN_FAILED):	
+		if (self.state == State.opened):
+			return 1
+		elif (self.state == State.failed):	
 			print "received CELL_TYPE_OPEN_FAILED!"
-			retval = -1
-		else
+			return -1
+		else	# self.state == State.init
 			print "Did not get a response for OPEN within timeout."
 			return -2
-		return retval
 
-	def startReaderWriter(self):
-		# Spawn socket writing thread
-		connect_handle_thread = threading.Thread(target=self.socket_writer)
-		connect_handle_thread.setDaemon(True)
-		connect_handle_thread.start()
+	def createCircuit():
+		circuit_obj = Circuit(self.source_outgoing_c_id)
+		self.circuit_id_to_circuit_objs[self.source_outgoing_c_id] = circuit_obj
 
-		# spawn socket reader thread
-		connect_handle_thread = threading.Thread(target=self.socket_reader)
-		connect_handle_thread.setDaemon(True)
-		connect_handle_thread.start()
-		# put an entry into circuit_id_to_circuit_objs
-
-	def onOpen(self):
+	# Q: do we know the opener_agent_id, opened_agent_id before getting the OPEN?
+	def startAsOpened(self):
+		if(we_are_initiator):
+			print "startAsOpened should only be called if we did not initiate the connection."
+			return -1
 		# we are not the initiator
 		self.next_circuit_num = 0
-		# need to send a opened
-		send(ZERO_CIRCUIT, CELL_TYPE_OPENED, opener_agent_id=self.opener_agent_id, opened_agent_id=self.opened_agent_id)
-		
 
-	def handleCell(cell):
-		c_id, cell_type, other = struct.unpack('>HBs', cell)
-		if(cell_type == CELL_TYPE_OPENED):
-			print "This is really weird we shouldnt be here -- CELL_TYPE_OPENED"
-			self.opened_condition.cell_type = CELL_TYPE_OPENED
+		# Wait for either OPEN 
+		self.open_condition.acquire()
+		self.open_condition.wait(10) # timeout in secs
+		self.open_condition.release()
 
-			self.opened_condition.acquire()
-			self.opened_condition.notify()
-			self.opened_condition.release()
+		startReaderWriter()	# writer notifies 
 
-			self.onOpened()
-		elif(cell_type == CELL_TYPE_OPEN):
-			# assume everything worked
-			self.onOpen()
-		elif(cell_type == CELL_TYPE_RELAY):
-
-			self.onRelay(cell, self.partner_ip_port)
-
-		elif(cell_type == CELL_TYPE_DESTROY):
-			self.onDestroy(cell)
-		elif(cell_type == CELL_TYPE_CREATE):
-			send(c_id, CELL_TYPE_CREATED)
-			self.onCreate(cell)
-		elif(cell_type == CELL_TYPE_CREATED):
-			self.onCreated(cell)
-		elif(cell_type == CELL_TYPE_OPEN_FAILED):
-			self.opened_condition.cell_type = CELL_TYPE_OPEN_FAILED
-			self.opened_condition.notify()
-			self.onOpenFailed(cell)
-		else(cell_type == CELL_TYPE_CREATE_FAILED):
-			self.onCreateFailed(cell)
-
-	def getCircuitObj(self, c_id):
-		return self.circuit_id_to_circuit_objs[c_id]
+		if (self.state == State.opened):
+			return 1
+		else	# self.state == State.init
+			print "Did not get a response for OPEN within timeout."
+			return -2
 
 	def socket_writer(self):
 		data = self.socket_buffer.get(True)
 		self.socket.sendAll(data);
 
-	# Reads data from socket, and puts still-packed
-	# cell into self.socket_buffer
 	def socket_reader(self):
 		length_received = 0
 		cell = ""
@@ -150,6 +120,71 @@ class Tor61Connection(object):
 		connect_handle_thread = threading.Thread(target=self.handleCell, args=(cell,))
 		connect_handle_thread.setDaemon(True)
 		connect_handle_thread.start()handleCell(cell)
+
+	def startReaderWriter(self):
+		# Spawn socket writing thread
+		connect_handle_thread = threading.Thread(target=self.socket_writer)
+		connect_handle_thread.setDaemon(True)
+		connect_handle_thread.start()
+
+		# spawn socket reader thread
+		connect_handle_thread = threading.Thread(target=self.socket_reader)
+		connect_handle_thread.setDaemon(True)
+		connect_handle_thread.start()
+		# put an entry into circuit_id_to_circuit_objs
+
+	def handleCell(cell):
+		c_id, cell_type, other = struct.unpack('>HBs', cell)
+		if(cell_type == CELL_TYPE_OPENED):
+			print "This is really weird we shouldnt be here -- CELL_TYPE_OPENED"
+			# self.opened_condition.cell_type = CELL_TYPE_OPENED
+
+			self.opened_condition.acquire()
+			self.opened_condition.notify()
+			self.opened_condition.release()
+
+			# self.onOpened()
+			self.state = State.opened 
+		elif(cell_type == CELL_TYPE_OPEN):
+			# should be the first cell received on this new Tor61 if self.we_are_initiator == False
+			self.open_condition.acquire()
+			self.open_condition.notify()
+			self.open_condition.release()
+
+			# cast to unsigned int
+			opener_agent_id = struct.pack('>I', other[:4])
+			opened_agent_id = struct.pack('>I', other[4:8])
+			self.opener_agent_id = opener_agent_id
+			self.opened_agent_id = opened_agent_id
+			# need to send a opened
+			send(ZERO_CIRCUIT, CELL_TYPE_OPENED, opener_agent_id=opener_agent_id, opened_agent_id=opened_agent_id)
+			self.state = State.opened
+
+		elif(cell_type == CELL_TYPE_RELAY):
+			self.onRelay(cell, self.partner_ip_port)
+
+		elif(cell_type == CELL_TYPE_DESTROY):
+			self.onDestroy(cell)
+
+		elif(cell_type == CELL_TYPE_CREATE):
+			send(c_id, CELL_TYPE_CREATED)
+			self.onCreate(cell)
+
+		elif(cell_type == CELL_TYPE_CREATED):
+			# should we check if the cid matches?
+			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
+			circuit_obj.onCreated()
+
+		elif(cell_type == CELL_TYPE_OPEN_FAILED):
+			self.opened_condition.cell_type = CELL_TYPE_OPEN_FAILED
+			self.opened_condition.notify()
+			self.onOpenFailed(cell)
+
+		else(cell_type == CELL_TYPE_CREATE_FAILED):
+			self.onCreateFailed(cell)
+
+	def getCircuitObj(self, c_id):
+		return self.circuit_id_to_circuit_objs[c_id]
 
 	def forward(self, c_id, cell):
 		 new_cell = struct.pack_into('>H', cell, 0, c_id)

@@ -8,7 +8,7 @@ from threading
 # A stream object represents 
 # a Tor stream on a circuit
 class TorStream(object):
-	State = enum(init=0, running=1, stopped=2, failed=4)
+	State = enum(init=0, running=1, stopped=2, failed=3)
 
 	# class State(Enum):
 	# 	init = 0
