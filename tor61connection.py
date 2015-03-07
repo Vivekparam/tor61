@@ -2,10 +2,14 @@
 # CSE 461 Winter 2015
 import struct
 import threading
-from enum import Enum
+from Queue import Queue
 
 class Tor61Connection(object):
-	State = enum(init=0, opened=1, stopped=2, failed=3) 
+	class State(object):
+		init = 0
+		running = 1
+		stopped = 2
+		failed = 3
 	
 	ZERO_CIRCUIT = 0x0000
 
@@ -50,7 +54,7 @@ class Tor61Connection(object):
 	def startAsOpener(self, opener_agent_id, opened_agent_id):
 		self.opener_agent_id = opener_agent_id
 		self.opened_agent_id = opened_agent_id
-		if(!we_are_initiator):
+		if not we_are_initiator:
 			print "startAsOpener should only be called if we initiated the connection."
 			return -1
 
@@ -66,13 +70,13 @@ class Tor61Connection(object):
 		
 		# cell_type = self.opened_condition.cell_type
 
-		if (self.state == State.opened):
+		if (self.state == Tor61Connection.State.opened):
 			startReaderWriter() # need to first wait, then read from the reading thread
 			return 1
-		elif (self.state == State.failed):	
+		elif (self.state == Tor61Connection.State.failed):	
 			print "received CELL_TYPE_OPEN_FAILED!"
 			return -1
-		else	# self.state == State.init
+		else:	# self.state == State.init
 			print "Did not get a response for OPEN within timeout."
 			return -2
 
@@ -125,9 +129,9 @@ class Tor61Connection(object):
 		self.open_condition.wait(10) # timeout in secs
 		self.open_condition.release()
 
-		if (self.state == State.opened):
+		if (self.state == Tor61Connection.State.opened):
 			return 1
-		else	# self.state == State.init
+		else: # self.state == State.init
 			print "Did not get a response for OPEN within timeout."
 			return -2
 
@@ -138,7 +142,7 @@ class Tor61Connection(object):
 	def socket_reader(self):
 		length_received = 0
 		cell = ""
-		while (length_received < 512)
+		while (length_received < 512):
 			data = self.socket.recv(512 - length_received)
 			if not (data):
 				print "no more received data"
@@ -149,7 +153,7 @@ class Tor61Connection(object):
 		# spawn handle-cell thread
 		connect_handle_thread = threading.Thread(target=self.handleCell, args=(cell,))
 		connect_handle_thread.setDaemon(True)
-		connect_handle_thread.start()handleCell(cell)
+		connect_handle_thread.start()
 
 	def startReaderWriter(self):
 		# Spawn socket writing thread
@@ -174,7 +178,7 @@ class Tor61Connection(object):
 			self.opened_condition.release()
 
 			# self.onOpened()
-			self.state = State.opened 
+			self.state = Tor61Connection.State.opened 
 		elif(cell_type == CELL_TYPE_OPEN):
 			# should be the first cell received on this new Tor61 if self.we_are_initiator == False
 			self.open_condition.acquire()
@@ -188,7 +192,7 @@ class Tor61Connection(object):
 			self.opened_agent_id = opened_agent_id
 			# need to send a opened
 			send(ZERO_CIRCUIT, CELL_TYPE_OPENED, opener_agent_id=opener_agent_id, opened_agent_id=opened_agent_id)
-			self.state = State.opened
+			self.state = Tor61Connection.State.opened
 
 		elif(cell_type == CELL_TYPE_RELAY):
 			self.onRelay(cell, self.partner_ip_port)
@@ -212,7 +216,7 @@ class Tor61Connection(object):
 			self.opened_condition.notify()
 			self.onOpenFailed(cell)
 
-		else(cell_type == CELL_TYPE_CREATE_FAILED):
+		elif(cell_type == CELL_TYPE_CREATE_FAILED):
 			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
 			circuit_obj.receive_created_condition.acquire()
 			circuit_obj.receive_created_condition.notify()

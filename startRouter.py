@@ -18,10 +18,10 @@ def readForEof():
 				if not uin: print "eof"
 				# got eof
 				IS_RUNNING = False
-				terminate()
+				sys.exit()
 	except KeyboardInterrupt:
 		server_is_running = False
-		terminate()
+		sys.exit()
 
 def main():
 		# Create thread which reads from stdin
@@ -47,6 +47,7 @@ def main():
 		print ' is running '
 		continue
 
+	router.killRouter()
 	# Todo: health check on each other?
 
 main()

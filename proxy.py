@@ -32,7 +32,7 @@ class TorProxy(object):
 		stopped = 2
 
 	def __init__(self):
-		self.port_listening = 3000
+		self.port_listening = sys.argv[4]
 		self.server_is_running = True
 		self.state = TorProxy.State.init
 
