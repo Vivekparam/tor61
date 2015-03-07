@@ -10,13 +10,15 @@ class Circuit(object):
 		self.id = c_id
 		self.stream_id_to_stream_objs = {}
 		self.next_stream_id_num = 0
+		self.receive_created_condition = thread.Condition()
+		self.receive_relayextend_condition = thread.Condition()
 		if (self.id == 1):
 			self.state = State.init
 
-	def getStream(stream_id):
+	def getStream(self, stream_id):
 		return self.stream_id_to_stream_objs[stream_id]
 
-	def createStream(): 
+	def createStream(self): 
 		# TODO: fix bad interleavings here
 		stream = Stream(self.next_stream_id_num)
 		self.stream_id_to_stream_objs[stream_id] = stream
@@ -24,16 +26,18 @@ class Circuit(object):
 		return stream
 
 	# only for the self.id == 1 circuit
-	def onRelayExtended():
+	def onRelayExtended(self):
 		if (self.id == 1):
 			if (self.state == State.one_hop):
 				self.state = State.two_hop
 			elif (self.state == State.two_hop):
 				self.state = State.three_hop
 
-	def onCreated():
+	def onCreated(self):
 		if (self.id == 1):
 			if (self.state == State.init):
 				self.state = State.one_hop
 
+	def getCid(self):
+		return self.id
 

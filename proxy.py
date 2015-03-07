@@ -8,9 +8,17 @@ import time
 import string
 import re
 from pprint import pprint
-from enum import Enum
 from Queue import Queue 
 
+
+def message_log(message):
+	print time.strftime("%d %b %H:%M:%S").title() + " - >>> " + message 
+
+
+# Exits the program
+def terminate():
+	print 'terminate'
+	sys.exit()
 
 
 class TorProxy(object):
@@ -18,19 +26,16 @@ class TorProxy(object):
 	TIMEOUT = 10 # seconds
 	SOCKET_RECV_SIZE = 1024
 
-	class State(Enum):
+	class State(object):
 		init = 0
 		running = 1
 		stopped = 2
 
 	def __init__(self):
-		self.port_listening = sys.argv[1]
+		self.port_listening = 3000
 		self.server_is_running = True
-		self.state = State.init
+		self.state = TorProxy.State.init
 
-	# Exits the program
-	def terminate():
-		sys.exit()
 
 	def addRouter(self, router):
 		self.router = router
@@ -40,9 +45,7 @@ class TorProxy(object):
 		# buffer.add({
 		# 		data: akjdfakljdhflakjsdfs
 		# })
-
-	def message_log(message):
-		print time.strftime("%d %b %H:%M:%S").title() + " - >>> " + message 
+		pass
 
 	# sets the isClosed condition to True
 	def timeout_function(connection):
@@ -61,6 +64,7 @@ class TorProxy(object):
 
 	# a thread for tunnel from client -> proxy -> server
 	def handle_forwarding_to_router(self, thisConnection):
+		print 'handle_forwarding_to_router'
 		try:
 			stream_obj = thisConnection['stream_obj']
 			while True:
@@ -90,6 +94,7 @@ class TorProxy(object):
 	# Keeps connection open if client requested a 
 	# CONNECT, otherwise, simpy forwards the request.
 	def handle_connection(self, clientsocket, address):
+		print 'handle_connection'
 		connection_closed = False
 		connect_tunneling = False
 		host = ""
@@ -173,7 +178,7 @@ class TorProxy(object):
 			thisConnection = {
 				"clientsocket" : clientsocket,
 				"isClosed": False,
-				"timerLock" : threading.Lock()
+				"timerLock" : threading.Lock(),
 				"stream_obj" 	: stream_obj
 			}
 			# initialize and start timer
@@ -194,11 +199,11 @@ class TorProxy(object):
 			while True:
 				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 				# data = hostsocket.recv(SOCKET_RECV_SIZE)
-				data = 
+				data = stream_obj.getNextFromRouter()
 				if data: 
 					# ####clientsocket.sendall(data)
 					data = stream_obj.getNextFromRouter()
-				reset_timer(thisConnection)
+					reset_timer(thisConnection)
 				elif connect_tunneling:
 					if thisConnection['isClosed']:
 						stream_obj.closeStream()
@@ -213,44 +218,20 @@ class TorProxy(object):
 			stream_obj.closeStream()
 			terminate()
 
-
-
-
-
-	# ***** We create a separate thread to read for eof from console ***** #
-
-	# Loops until reading eof or 'q'
-	# from stdin, then sets server_is_running
-	# to false and terminates thread.
-	def readForEof():
-		try: 
-			while True:
-				uin = sys.stdin.readline().strip()
-				if not uin or (uin is 'q'):
-					if not uin: print "eof"
-					# got eof
-					self.state = State.stopped
-					terminate()
-		except KeyboardInterrupt:
-			server_is_running = False
-			terminate()
-
 	def start(self):
-		# Create thread which reads from stdin
-		user_input_thread = threading.Thread(target=readForEof)
-		user_input_thread.setDaemon(True)
-		user_input_thread.start()
-
+		print 'start'
 		# ***** Create the listening thread, which dispatches child threads for each new connection ***** #
+		self.state = TorProxy.State.running
 		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		host = socket.gethostname()
-		server.bind((host, int(port_listening)))
+		server.bind((host, int(self.port_listening)))
 		server.listen(5)
-		message_log("Proxy listening on " + socket.gethostbyname(socket.gethostname()) + ":" + port_listening)
+		message_log("Proxy listening on " + socket.gethostbyname(socket.gethostname()) + ":" + str(self.port_listening))
 
 		# Loops while server_is_running is true, accepting packets from clients 
 		def acceptConnections():
-			while self.state == State.running:
+			print 'acceptConnections'
+			while self.state == TorProxy.State.running:
 				(clientsocket, address) = server.accept()
 				# perform basic packet handling then put it in a queue
 				# create thread which deals with this cleint
@@ -262,21 +243,14 @@ class TorProxy(object):
 		server_connection_thread = threading.Thread(target=acceptConnections)
 		server_connection_thread.setDaemon(True)
 		server_connection_thread.start()
-
-		# ***** Keep server alive until it is time ***** # 
-		# Exit when server stops running
-		while self.state == State.running:
-			# loop de loop
-			continue
-
-		server.close()
-		terminate()
+		return 1
 
 	# ****** PROXY-TO-SERVER communications ****
-	# host_address = (host, hostport)
-	def connect_to_server(host_address, stream_obj):
+	def connect_to_server(buffer, stream_obj):
+		print 'connect_to_server'
 		# Opens a socket and connect to the server host
 		hostsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		host_address = (host, hostport)
 		# print "Attempting connections to " + host + ":" + str(hostport)
 		connect_ret = hostsocket.connect_ex(host_address) 
 
@@ -293,8 +267,8 @@ class TorProxy(object):
 				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 				data = hostsocket.recv(SOCKET_RECV_SIZE)
 				if data: 
-					stream.sendAllToRouter(data)
-				reset_timer(thisConnection)
+					stream_obj.sendAllToRouter(data)
+					reset_timer(thisConnection)
 				elif connect_tunneling:
 					if thisConnection['isClosed']:
 						break
@@ -306,5 +280,4 @@ class TorProxy(object):
 			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
 			closeSockets(clientsocket, hostsocket)
 			terminate()
-
 

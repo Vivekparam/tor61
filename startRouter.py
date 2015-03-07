@@ -1,9 +1,34 @@
 # Jacqueline Lee and Vivek Paramasivam, 
 # CSE 461 Winter 2015
-import proxy
-import router
+from proxy import TorProxy
+from router import TorRouter
+import threading
+import sys
+# ***** We create a separate thread to read for eof from console ***** #
+
+IS_RUNNING = True
+# Loops until reading eof or 'q'
+# from stdin, then sets server_is_running
+# to false and terminates thread.
+def readForEof():
+	try: 
+		while True:
+			uin = sys.stdin.readline().strip()
+			if not uin or (uin is 'q'):
+				if not uin: print "eof"
+				# got eof
+				IS_RUNNING = False
+				terminate()
+	except KeyboardInterrupt:
+		server_is_running = False
+		terminate()
 
 def main():
+		# Create thread which reads from stdin
+	user_input_thread = threading.Thread(target=readForEof)
+	user_input_thread.setDaemon(True)
+	user_input_thread.start()
+
 	proxy = TorProxy()
 	router = TorRouter()
 	proxy.addRouter(router)
@@ -11,13 +36,17 @@ def main():
 	# Now, both sides have the state they need
 
 	ret = proxy.start()
-	if(ret != 1) {
+	if(ret != 1) :
 		print "Error starting proxy."
-	}
+	
 	ret = router.start()
-	if(ret != 1) {
+	if(ret != 1) :
 		print "Error starting router."
-	}
+
+	while (IS_RUNNING):
+		print ' is running '
+		continue
+
 	# Todo: health check on each other?
 
 main()

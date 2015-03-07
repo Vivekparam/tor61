@@ -10,6 +10,8 @@ from threading
 class TorStream(object):
 	State = enum(init=0, running=1, stopped=2, failed=3)
 
+	STREAM_ZERO_RELAY_EXTEND = 0x0000
+
 	# class State(Enum):
 	# 	init = 0
 	# 	running = 1
@@ -49,7 +51,7 @@ class TorStream(object):
 
 	def checkState(self):
 
-		
+
 	def closeStream(self):
 		self.state = State.stopped
 

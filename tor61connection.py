@@ -30,6 +30,7 @@ class Tor61Connection(object):
 		self.we_are_initiator = we_are_initiator
 		self.partner_ip_port = partner_ip_port
 		self.source_outgoing_c_id = 1
+		self.next_circuit_num_lock = threading.Lock()
 
 		# This is the socket through which
 		# the two routers will communicate
@@ -41,8 +42,7 @@ class Tor61Connection(object):
 		self.open_condition = threading.Condition()
 
 	# Open starts this tor61 connection.
-	# In other words, it either sends back a OPENED
-	# cell, or sends an OPEN cell to the other end
+	# Sends an OPEN cell to the other end
 	# of the associated socket.
 	# Returns 1 if open operation was successful
 	# Returns -1 if got OPEN_FAILED
@@ -65,9 +65,9 @@ class Tor61Connection(object):
 		self.opened_condition.release()
 		
 		# cell_type = self.opened_condition.cell_type
-		startReaderWriter() # need to first wait, then read from the reading thread
 
 		if (self.state == State.opened):
+			startReaderWriter() # need to first wait, then read from the reading thread
 			return 1
 		elif (self.state == State.failed):	
 			print "received CELL_TYPE_OPEN_FAILED!"
@@ -76,14 +76,40 @@ class Tor61Connection(object):
 			print "Did not get a response for OPEN within timeout."
 			return -2
 
-	def createCircuit(we_are_source):
+	def sendCreate(we_are_source):
 		if (we_are_source):
-			circuit_obj = Circuit(self.source_outgoing_c_id)
-			self.circuit_id_to_circuit_objs[self.source_outgoing_c_id] = circuit_obj
+			c_id = self.source_outgoing_c_id
+			circuit_obj = Circuit(c_id)
+			self.circuit_id_to_circuit_objs[c_id] = circuit_obj
+
+			# Get list of routers we can use
+			# select one at random
 		else:
+			# In this case, we might be asked to extend by someone else to a destination
+			# to whom the other end was the source of the TCP connection
+			self.next_circuit_num_lock.acquire()
 			circuit_obj = Circuit(self.next_circuit_num)
+
 			self.circuit_id_to_circuit_objs[self.next_circuit_num] = circuit_obj
-			self.next_circuit_num += 1
+			self.next_circuit_num += 2
+			self.next_circuit_num_lock.release()
+			
+		# send create & wait for CREATE CREATE_FAILED
+		circuit_obj.receive_created_condition.acquire()
+		send(c_id, CELL_TYPE_CREATE)
+		circuit_obj.receive_created_condition.wait(10)
+		circuit_obj.receive_created_condition.release()
+
+		if (circuit_obj.receive_created_condition.success):
+			print 'send create success'
+		else: 
+			return (0, None)
+			print 'send CREATE failed'
+			# try another router
+			# select another router at random
+
+		# circuit is ready
+		return (1, circuit_obj)
 
 	# Q: do we know the opener_agent_id, opened_agent_id before getting the OPEN?
 	def startAsOpened(self):
@@ -91,14 +117,13 @@ class Tor61Connection(object):
 			print "startAsOpened should only be called if we did not initiate the connection."
 			return -1
 		# we are not the initiator
-		self.next_circuit_num = 0
+		self.next_circuit_num = 2
 
 		# Wait for either OPEN 
 		self.open_condition.acquire()
+		startReaderWriter()	# reader -> handle cell notifies 
 		self.open_condition.wait(10) # timeout in secs
 		self.open_condition.release()
-
-		startReaderWriter()	# reader -> handle cell notifies 
 
 		if (self.state == State.opened):
 			return 1
@@ -177,7 +202,10 @@ class Tor61Connection(object):
 
 		elif(cell_type == CELL_TYPE_CREATED):
 			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
-			circuit_obj.onCreated()
+			circuit_obj.receive_created_condition.acquire()
+			circuit_obj.receive_created_condition.notify()
+			circuit_obj.receive_created_condition.success = 1
+			circuit_obj.receive_created_condition.release()
 
 		elif(cell_type == CELL_TYPE_OPEN_FAILED):
 			self.opened_condition.cell_type = CELL_TYPE_OPEN_FAILED
@@ -185,7 +213,11 @@ class Tor61Connection(object):
 			self.onOpenFailed(cell)
 
 		else(cell_type == CELL_TYPE_CREATE_FAILED):
-			self.onCreateFailed(cell)
+			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
+			circuit_obj.receive_created_condition.acquire()
+			circuit_obj.receive_created_condition.notify()
+			circuit_obj.receive_created_condition.success = 0
+			circuit_obj.receive_created_condition.release()
 
 	def getCircuitObj(self, c_id):
 		return self.circuit_id_to_circuit_objs[c_id]
@@ -200,7 +232,7 @@ class Tor61Connection(object):
 	def addOnCreateListener(callback):
 		self.onCreate = callback
 
-	def addRelay(self, callback):
+	def addOnRelayHandler(self, callback):
 		self.onRelayBegin = callback
 
 	# Define all send functions
@@ -229,8 +261,8 @@ class Tor61Connection(object):
 		return circuit_id_to_circuit_objs.get(c_id)
 
 	# for router
-	def sendRelay(self, c_id, stream_id, digest, relay_cmd, body):
-		send(c_id, CELL_TYPE_RELAY, stream_id=stream_id, digest=digest, body_length=0, relay_cmd=relay_cmd, body=body)
+	def sendRelay(self, c_id, stream_id, digest, body_length, relay_cmd, body):
+		send(c_id, CELL_TYPE_RELAY, stream_id=stream_id, digest=digest, body_length=body_length, relay_cmd=relay_cmd, body=body)
 
 	def sendRelayCell(self, cell):
 		self.socket_buffer.put(cell)
