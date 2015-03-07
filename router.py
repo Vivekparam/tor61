@@ -80,7 +80,8 @@ class TorRouter(object):
 				partner_host_addr = (line[0], int(line[1]))
 				# establish TCP 
 				socket = TorRouter.createTCPConnection(partner_host_addr)
-				(retval, tor61connection) = self.createTor61Connection(partner_host_addr, socket, True, opener_agent_id=self.router_instance_number, opened_agent_id, line[1])
+				(retval, tor61connection) = self.createTor61Connection( partner_host_addr, socket, True, 
+																		opener_agent_id=self.router_instance_number, opened_agent_id=line[1])
 				print 'retval: '+ str(retval)
 			except IndexError:
 				killRouter()
