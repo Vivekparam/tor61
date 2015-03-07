@@ -4,6 +4,8 @@
 from collections import namedtuple
 from subprocess import Popen, PIPE
 import sys
+import threading
+import socket
 
 class TorRouter(object):
 	# Router's state
@@ -53,7 +55,10 @@ class TorRouter(object):
 		# by calling startTorConnectionListener
 
 		# fork + exec to contact registration service
-	
+		connect_handle_thread = threading.Thread(target=self.tor61Listener)
+		connect_handle_thread.setDaemon(True)
+		connect_handle_thread.start()
+
 		retval = -1
 		tor61connection = None
 		while (retval < 0):	
@@ -65,8 +70,8 @@ class TorRouter(object):
 			print output
 			lines = output.split('\n')
 			if (len(lines) < 4):
-				print 'not enough routers available ' + str(len(lines))
-				print lines[0]
+				#print 'not enough routers available ' + str(len(lines))
+				#print lines[0]
 				continue
 			line = lines[0].split(' ')
 
@@ -105,24 +110,22 @@ class TorRouter(object):
 		if (circuit_obj.state == Circuit.State.three_hop):
 			print 'building circuit done'
 
-		connect_handle_thread = threading.Thread(target=self.tor61Listener)
-		connect_handle_thread.setDaemon(True)
-		connect_handle_thread.start()
+
 
 	# a thread that listens for new Tor61 connection
 	# registers this own router
 	# when a new Tor61 connection comes in, spawn a new thread to process and create a new Tor61 connection
-	def tor61Listener():
-
+	def tor61Listener(self):
+		print 'tor61Listener'
 		new_connection_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		host = new_connection_listener.gethostname()
+		host = socket.gethostname()
 
-		new_connection_listener.bind((new_host, int(self.port_listening_tor61)))
+		new_connection_listener.bind((host, int(self.port_listening_tor61)))
 		new_connection_listener.listen(5)
 		# message_log("Router listening on " + socket.gethostbyname(socket.gethostname()) + ":" + port_listening)
 		# register ourselves
 		
-		router_instance_name = 'Tor61Router-' + str(group_number) + '-' + str(router_instance_number)
+		router_instance_name = 'Tor61Router-' + str(self.group_number) + '-' + str(self.router_instance_number)
 		int_data = 65539
 		p = Popen(['python', 'registrationUtility/registration_client.py', str(self.port_listening_tor61), router_instance_name, str(int_data)])
 					# stdin=PIPE, stdout=PIPE, stderror=PIPE)

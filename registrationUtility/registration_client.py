@@ -17,8 +17,8 @@ import os
 # the process that wants to be registered.
 #-----------------------------------------------
 
-#print "parent pid = ", os.getppid()
-#print "my pid = ", os.getpid()
+print "parent pid = ", os.getppid()
+print "my pid = ", os.getpid()
 
 REGISTRATION_SERVER_HOST = "cse461.cs.washington.edu"
 REGISTRATION_SERVER_IP = socket.gethostbyname(REGISTRATION_SERVER_HOST);
@@ -37,7 +37,7 @@ SERVER_RESPONSE_TIMEOUT = 4
 # DO NOT CHANGE THIS. The registration service
 # will send us packets on SENDING_PORT + 1
 LOCAL_IP = struct.unpack('!I', socket.inet_aton(socket.gethostbyname(socket.getfqdn())))[0]
-#print "[registration client] Local IP:", socket.gethostbyname(socket.getfqdn())
+print "[registration client] Local IP:", socket.gethostbyname(socket.getfqdn())
 
 # Do not change anything else below here unless
 # you know what you're doing
