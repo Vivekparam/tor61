@@ -10,16 +10,13 @@ import re
 from pprint import pprint
 from Queue import Queue 
 
-
 def message_log(message):
 	print time.strftime("%d %b %H:%M:%S").title() + " - >>> " + message 
-
 
 # Exits the program
 def terminate():
 	print 'terminate'
 	sys.exit()
-
 
 class TorProxy(object):
 	SLEEP_TIME_BETWEEN_RECEIVING_DATA = 0.1
@@ -30,59 +27,37 @@ class TorProxy(object):
 		init = 0
 		running = 1
 		stopped = 2
+		failed = 3
 
 	def __init__(self):
 		self.port_listening = sys.argv[4]
 		self.server_is_running = True
 		self.state = TorProxy.State.init
 
+	def start(self):
+		print 'start'
+		# ***** Create the listening thread, which dispatches child threads for each new connection ***** #
+		self.state = TorProxy.State.running
+		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		host = socket.gethostname()
+		server.bind((host, int(self.port_listening)))
+		server.listen(5)
+		message_log("Proxy listening on " + socket.gethostbyname(socket.gethostname()) + ":" + str(self.port_listening))
 
-	def addRouter(self, router):
-		self.router = router
-
-	def connectToHost(self, ip, port, streamNum, buffer):
-		# make a new thread to connect to host so we can do this:
-		# buffer.add({
-		# 		data: akjdfakljdhflakjsdfs
-		# })
-		pass
-
-	# sets the isClosed condition to True
-	def timeout_function(connection):
-		connection['isClosed'] = True
-
-	# resets the timer for both tunnels 
-	def reset_timer(connection):
-		#print "set_timer"
-		connection['timerLock'].acquire() 
-		timer = connection['timer']
-		if timer is not None:
-			timer.cancel()
-		timer = threading.Timer(TIMEOUT, timeout_function, (connection,))
-		timer.start()
-		connection['timerLock'].release() 
-
-	# a thread for tunnel from client -> proxy -> server
-	def handle_forwarding_to_router(self, thisConnection):
-		print 'handle_forwarding_to_router'
-		try:
-			stream_obj = thisConnection['stream_obj']
-			while True:
-				data = thisConnection['clientsocket'].recv(SOCKET_RECV_SIZE) 
-				reset_timer(thisConnection)
-				if data:
-					# thisConnection['hostsocket'].sendall(data)
-					# TODO: Write to buffer to router side
-					stream_obj.sendAllToRouter(data)
-				elif thisConnection['isClosed']:
-					break
-		except Exception as e:
-			pprint(e)
-		finally:
-			# TODO is this right?
-			stream_obj.closeStream()
-			closeSocket(thisConnection['clientsocket'])
-			terminate()
+		# create thread which is accepting packets from clients
+		server_connection_thread = threading.Thread(target=acceptConnections)
+		server_connection_thread.setDaemon(True)
+		server_connection_thread.start()
+		return 1
+	
+	# Loops while server_is_running is true, accepting packets from clients 
+	def acceptConnections():
+		print 'acceptConnections'
+		while self.state == TorProxy.State.running:
+			(clientsocket, address) = server.accept()
+			connection_handle_thread = threading.Thread(target=handle_connection, args=(self, clientsocket, address))
+			connection_handle_thread.setDaemon(True)
+			connection_handle_thread.start()
 
 	# Does everything needed to deal with a new request from
 	# a client.
@@ -160,19 +135,17 @@ class TorProxy(object):
 				header_array[i]  = "proxy-connection: close"
 			header_buffer += header_array[i] + '\n'
 
+		# Creates a stream for this new connection on the router side
 		host_address = (host, hostport)
-		(connect_ret, stream_obj) = router.startStream(host_address)
-		# startStream will send a Relay Begin cell down the circuit, then start
-		# a timer. If it does not recieve a response withing (10?) seconds, 
-		# it will return 0, and proxy should treat this as an error.
-		# If router gets back a Begin Failed, it also returns 0 and proxy treats this as an error.
-		# If router gets back a Relay Connected, it sends back a 1, and proxy
-		# sends back a 200 OK response. 
+		# startStream will send a Relay Begin cell down the circuit, then wait for Connected if success
+		(connect_ret, stream_obj) = router.startStream(host_address)	
 
-		if (connect_ret != 0):
-			print "host server connection error: " + str(connect_ret)
+		if (connect_ret != 1):	
+			# connect_ret = 0 -> error: Begin Failed or timeout
+			print "Start stream error: " + str(connect_ret)
 			return
 
+		# send a 200 OK reponse 
 		if connect_tunneling:	# HTTP CONNECT
 			clientsocket.send('HTTP/1.0 200 OK\r\n\r\n')
 			thisConnection = {
@@ -218,32 +191,57 @@ class TorProxy(object):
 			stream_obj.closeStream()
 			terminate()
 
-	def start(self):
-		print 'start'
-		# ***** Create the listening thread, which dispatches child threads for each new connection ***** #
-		self.state = TorProxy.State.running
-		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		host = socket.gethostname()
-		server.bind((host, int(self.port_listening)))
-		server.listen(5)
-		message_log("Proxy listening on " + socket.gethostbyname(socket.gethostname()) + ":" + str(self.port_listening))
 
-		# Loops while server_is_running is true, accepting packets from clients 
-		def acceptConnections():
-			print 'acceptConnections'
-			while self.state == TorProxy.State.running:
-				(clientsocket, address) = server.accept()
-				# perform basic packet handling then put it in a queue
-				# create thread which deals with this cleint
-				connection_handle_thread = threading.Thread(target=handle_connection, args=(self, clientsocket, address))
-				connection_handle_thread.setDaemon(True)
-				connection_handle_thread.start()
+	def addRouter(self, router):
+		self.router = router
 
-		# create thread which is accepting packets from clients
-		server_connection_thread = threading.Thread(target=acceptConnections)
-		server_connection_thread.setDaemon(True)
-		server_connection_thread.start()
-		return 1
+	def connectToHost(self, ip, port, streamNum, buffer):
+		# make a new thread to connect to host so we can do this:
+		# buffer.add({
+		# 		data: akjdfakljdhflakjsdfs
+		# })
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((ip, port))
+
+		pass
+
+	# sets the isClosed condition to True
+	def timeout_function(connection):
+		connection['isClosed'] = True
+
+	# resets the timer for both tunnels 
+	def reset_timer(connection):
+		#print "set_timer"
+		connection['timerLock'].acquire() 
+		timer = connection['timer']
+		if timer is not None:
+			timer.cancel()
+		timer = threading.Timer(TIMEOUT, timeout_function, (connection,))
+		timer.start()
+		connection['timerLock'].release() 
+
+	# a thread for tunnel from client -> proxy -> server
+	def handle_forwarding_to_router(self, thisConnection):
+		print 'handle_forwarding_to_router'
+		try:
+			stream_obj = thisConnection['stream_obj']
+			while True:
+				data = thisConnection['clientsocket'].recv(SOCKET_RECV_SIZE) 
+				reset_timer(thisConnection)
+				if data:
+					# thisConnection['hostsocket'].sendall(data)
+					# TODO: Write to buffer to router side
+					stream_obj.sendAllToRouter(data)
+				elif thisConnection['isClosed']:
+					break
+		except Exception as e:
+			pprint(e)
+		finally:
+			# TODO is this right?
+			stream_obj.closeStream()
+			closeSocket(thisConnection['clientsocket'])
+			terminate()
+
 
 	# ****** PROXY-TO-SERVER communications ****
 	def connect_to_server(buffer, stream_obj):

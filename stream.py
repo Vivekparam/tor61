@@ -2,13 +2,16 @@
 # CSE 461 Winter 2015
 
 from Queue import Queue 
-from enum import Enum
 from threading
 
 # A stream object represents 
 # a Tor stream on a circuit
 class TorStream(object):
-	State = enum(init=0, running=1, stopped=2, failed=3)
+	class State(object):
+		init = 0
+		running = 1
+		stopped = 2
+		failed = 3
 
 	STREAM_ZERO_RELAY_EXTEND = 0x0000
 
@@ -24,7 +27,7 @@ class TorStream(object):
 		self.bufferToProxy = Queue()
 		self.bufferToRouter = Queue()
 		self.streamNum = streamNum
-		self.state = State.init
+		self.state = TorStream.State.init
 		self.connected_condition = threading.Condtion()
 
 	def lockForConnected(self):
@@ -38,14 +41,14 @@ class TorStream(object):
 
 	def notifyConnected(self):
 		self.connected_condition.acquire()
-		self.state = State.running
+		self.state = TorStream.State.running
 		self.connected_condition.notify()
 		self.connected_condition.release()
 
 	def notifyFailed(self):
 		self.connected_condition.acquire()
 		self.connected_condition.success = 0
-		self.state = State.failed
+		self.state = TorStream.State.failed
 		self.connected_condition.notify()
 		self.connected_condition.release()
 
@@ -53,7 +56,7 @@ class TorStream(object):
 
 
 	def closeStream(self):
-		self.state = State.stopped
+		self.state = TorStream.State.stopped
 
 	# Define the operations which transfer data from 
 	# Buffer to Proxy and vice-versa

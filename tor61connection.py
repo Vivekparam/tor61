@@ -3,6 +3,7 @@
 import struct
 import threading
 from Queue import Queue
+from circuit import Circuit
 
 class Tor61Connection(object):
 	class State(object):

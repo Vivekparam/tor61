@@ -159,7 +159,11 @@ class TorRouter(object):
 	# was successful.
 	# Returns (0, None) otherwise
 	def startStream(host_address):
-		# pick a circuit
+		# startStream will send a Relay Begin cell down the circuit, then start
+		# a timer. If it does not recieve a response withing (10?) seconds, 
+		# it will return 0, and proxy should treat this as an error.
+		# If router gets back a Begin Failed, it also returns 0 and proxy treats this as an error.
+		# If router gets back a Relay Connected, it sends back a 1
 		tor61conection =  self.sourceTor61Connection
 		c_id = tor61conection.getSourceOutgoingCircuitId()
 		stream_obj = tor61conection.getCircuitObj(c_id).createStream()
@@ -172,14 +176,6 @@ class TorRouter(object):
 		if (stream_obj.state != TorStream.State.running):
 			return (0, None)
 		return (1, stream_obj)
-
-		# TODO
-		# startStream will send a Relay Begin cell down the circuit, then start
-		# a timer. If it does not recieve a response withing (10?) seconds, 
-		# it will return 0, and proxy should treat this as an error.
-		# If router gets back a Begin Failed, it also returns 0 and proxy treats this as an error.
-		# If router gets back a Relay Connected, it sends back a 1, and proxy
-		# sends back a 200 OK response. 
 
 	def addProxy(self, proxy):
 		self.proxy = proxy
