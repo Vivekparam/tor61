@@ -1,6 +1,8 @@
 # Jacqueline Lee and Vivek Paramasivam, 
 # CSE 461 Winter 2015
 
+import threading
+
 class Circuit(object):
 	# this only used on the source router
 	# keeps track of the state of the circuit
@@ -15,8 +17,8 @@ class Circuit(object):
 		self.id = c_id
 		self.stream_id_to_stream_objs = {}
 		self.next_stream_id_num = 0
-		self.receive_created_condition = thread.Condition()
-		self.receive_relayextend_condition = thread.Condition()
+		self.receive_created_condition = threading.Condition()
+		self.receive_relayextend_condition = threading.Condition()
 		if (self.id == 1):
 			self.state = Circuit.State.init
 

@@ -23,6 +23,10 @@ def readForEof():
 		server_is_running = False
 		sys.exit()
 
+def terminate(router):
+	router.killRouter()
+	return
+
 def main():
 		# Create thread which reads from stdin
 	user_input_thread = threading.Thread(target=readForEof)
@@ -38,16 +42,18 @@ def main():
 	ret = proxy.start()
 	if(ret != 1) :
 		print "Error starting proxy."
+		terminate(router)
 	
 	ret = router.start()
-	if(ret != 1) :
+	if(ret < 0) :
 		print "Error starting router."
+		terminate(router)
 
 	while (IS_RUNNING):
 		print ' is running '
 		continue
 
-	router.killRouter()
+	terminate(router)
 	# Todo: health check on each other?
 
 main()

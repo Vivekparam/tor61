@@ -2,7 +2,7 @@
 # CSE 461 Winter 2015
 
 from Queue import Queue 
-from threading
+import threading
 
 # A stream object represents 
 # a Tor stream on a circuit
@@ -53,7 +53,7 @@ class TorStream(object):
 		self.connected_condition.release()
 
 	def checkState(self):
-
+		return False
 
 	def closeStream(self):
 		self.state = TorStream.State.stopped

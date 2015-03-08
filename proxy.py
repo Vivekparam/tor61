@@ -38,23 +38,23 @@ class TorProxy(object):
 		print 'start'
 		# ***** Create the listening thread, which dispatches child threads for each new connection ***** #
 		self.state = TorProxy.State.running
-		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		host = socket.gethostname()
-		server.bind((host, int(self.port_listening)))
-		server.listen(5)
+		self.server.bind((host, int(self.port_listening)))
+		self.server.listen(5)
 		message_log("Proxy listening on " + socket.gethostbyname(socket.gethostname()) + ":" + str(self.port_listening))
 
 		# create thread which is accepting packets from clients
-		server_connection_thread = threading.Thread(target=acceptConnections)
+		server_connection_thread = threading.Thread(target=self.acceptConnections)
 		server_connection_thread.setDaemon(True)
 		server_connection_thread.start()
 		return 1
 	
 	# Loops while server_is_running is true, accepting packets from clients 
-	def acceptConnections():
+	def acceptConnections(self):
 		print 'acceptConnections'
 		while self.state == TorProxy.State.running:
-			(clientsocket, address) = server.accept()
+			(clientsocket, address) = self.server.accept()
 			connection_handle_thread = threading.Thread(target=handle_connection, args=(self, clientsocket, address))
 			connection_handle_thread.setDaemon(True)
 			connection_handle_thread.start()
