@@ -21,7 +21,8 @@ def terminate():
 class TorProxy(object):
 	SLEEP_TIME_BETWEEN_RECEIVING_DATA = 0.1
 	TIMEOUT = 10 # seconds
-	SOCKET_RECV_SIZE = 1024
+	SERVER_TIMEOUT = 60*10 # seconds
+	SOCKET_RECV_SIZE = 256
 
 	class State(object):
 		init = 0
@@ -33,6 +34,9 @@ class TorProxy(object):
 		self.port_listening = sys.argv[4]
 		self.server_is_running = True
 		self.state = TorProxy.State.init
+
+	def addRouter(self, router):
+		self.router = router
 
 	def start(self):
 		print 'start'
@@ -55,7 +59,7 @@ class TorProxy(object):
 		print 'acceptConnections'
 		while self.state == TorProxy.State.running:
 			(clientsocket, address) = self.server.accept()
-			connection_handle_thread = threading.Thread(target=handle_connection, args=(self, clientsocket, address))
+			connection_handle_thread = threading.Thread(target=self.handle_connection, args=(clientsocket, address))
 			connection_handle_thread.setDaemon(True)
 			connection_handle_thread.start()
 
@@ -89,7 +93,7 @@ class TorProxy(object):
 				line_buf = line_arr[0]
 				for i in range(1, len(line_arr)):
 					line_buf += " " + line_arr[i]
-				# print "tokenized current header line: " + line_buf
+				print "tokenized current header line: " + line_buf
 				header_array.append(line_buf)
 				previous_header_line = current_header_line;
 				current_header_line = ""
@@ -138,144 +142,188 @@ class TorProxy(object):
 		# Creates a stream for this new connection on the router side
 		host_address = (host, hostport)
 		# startStream will send a Relay Begin cell down the circuit, then wait for Connected if success
-		(connect_ret, stream_obj) = router.startStream(host_address)	
+		(connect_ret, stream_obj) = self.router.startStream(host_address)	
 
 		if (connect_ret != 1):	
 			# connect_ret = 0 -> error: Begin Failed or timeout
 			print "Start stream error: " + str(connect_ret)
 			return
 
+		thisConnection = {
+			"clientsocket" : clientsocket,
+			"isClosed": False,
+			"timerLock" : threading.Lock(),
+			"stream_obj" 	: stream_obj
+		}
 		# send a 200 OK reponse 
 		if connect_tunneling:	# HTTP CONNECT
+			print "connect tunneling"
 			clientsocket.send('HTTP/1.0 200 OK\r\n\r\n')
-			thisConnection = {
-				"clientsocket" : clientsocket,
-				"isClosed": False,
-				"timerLock" : threading.Lock(),
-				"stream_obj" 	: stream_obj
-			}
-			# initialize and start timer
-			timer = threading.Timer(TIMEOUT, timeout_function, (thisConnection,))
-			timer.start()
-			thisConnection['timer'] = timer
 
-			connect_handle_thread = threading.Thread(target=handle_forwarding_to_router, args=(thisConnection,))
+			# initialize and start timer
+
+			connect_handle_thread = threading.Thread(target=self.handle_forwarding_to_router, args=(thisConnection,))
 			connect_handle_thread.setDaemon(True)
 			connect_handle_thread.start()
 		else:	# not HTTP CONNECT
 			# print "header: " + header_buffer
+			print "connect tunneling"
 			stream_obj.sendAllToRouter(header_buffer + "\r\n")
-			stream_obj.closeStream()
+			# stream_obj.closeStream()
+			# return
+		timer = threading.Timer(TorProxy.TIMEOUT, TorProxy.timeout_function, (thisConnection,))
+		timer.start()
+		thisConnection['timer'] = timer
 
 		# Here, we become the Proxy-side buffer-to-client writing thread
-		try:
-			while True:
-				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA)
-				# data = hostsocket.recv(SOCKET_RECV_SIZE)
-				data = stream_obj.getNextFromRouter()
-				if data: 
-					# ####clientsocket.sendall(data)
-					data = stream_obj.getNextFromRouter()
-					reset_timer(thisConnection)
-				elif connect_tunneling:
-					if thisConnection['isClosed']:
-						stream_obj.closeStream()
-						break
+		# try:
+		while True:
+			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
+			# data = hostsocket.recv(SOCKET_RECV_SIZE)
+			data = stream_obj.getNextFromRouter()
+			if data: 
+				clientsocket.sendall(data)
+				# data = stream_obj.getNextFromRouter()
+				TorProxy.reset_timer(thisConnection)
+			elif connect_tunneling:
+				if thisConnection['isClosed']:
+					# stream_obj.closeStream()
+					break
 				# else:
 				# 	break
-		except Exception as e:
-			pprint(e)
-		finally:
+		# except Exception as e:
+		# 	pprint(e)
+		# finally:
 			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
-			clientsocket.close()
-			stream_obj.closeStream()
-			terminate()
-
-
-	def addRouter(self, router):
-		self.router = router
-
-	def connectToHost(self, ip, port, streamNum, buffer):
-		# make a new thread to connect to host so we can do this:
-		# buffer.add({
-		# 		data: akjdfakljdhflakjsdfs
-		# })
-		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		s.connect((ip, port))
-
-		pass
+		clientsocket.close()
+		stream_obj.closeStream()
+		terminate()
 
 	# sets the isClosed condition to True
+	@staticmethod
 	def timeout_function(connection):
 		connection['isClosed'] = True
 
 	# resets the timer for both tunnels 
+	@staticmethod
 	def reset_timer(connection):
 		#print "set_timer"
 		connection['timerLock'].acquire() 
 		timer = connection['timer']
 		if timer is not None:
 			timer.cancel()
-		timer = threading.Timer(TIMEOUT, timeout_function, (connection,))
+		timer = threading.Timer(TorProxy.TIMEOUT, TorProxy.timeout_function, (connection,))
 		timer.start()
 		connection['timerLock'].release() 
 
 	# a thread for tunnel from client -> proxy -> server
 	def handle_forwarding_to_router(self, thisConnection):
 		print 'handle_forwarding_to_router'
-		try:
-			stream_obj = thisConnection['stream_obj']
-			while True:
-				data = thisConnection['clientsocket'].recv(SOCKET_RECV_SIZE) 
-				reset_timer(thisConnection)
-				if data:
-					# thisConnection['hostsocket'].sendall(data)
-					# TODO: Write to buffer to router side
-					stream_obj.sendAllToRouter(data)
-				elif thisConnection['isClosed']:
-					break
-		except Exception as e:
-			pprint(e)
-		finally:
-			# TODO is this right?
-			stream_obj.closeStream()
-			closeSocket(thisConnection['clientsocket'])
-			terminate()
+		# try:
+		stream_obj = thisConnection['stream_obj']
+		while True:
+			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
+
+			data = thisConnection['clientsocket'].recv(TorProxy.SOCKET_RECV_SIZE) 
+			TorProxy.reset_timer(thisConnection)
+			if data:
+				# thisConnection['hostsocket'].sendall(data)
+				# TODO: Write to buffer to router side
+				stream_obj.sendAllToRouter(data)
+			elif thisConnection['isClosed']:
+				break
+		# except Exception as e:
+			# pprint(e)
+		# finally:
+		# TODO is this right?
+		stream_obj.closeStream()
+		# closeSocket(thisConnection['clientsocket'])
+		terminate()
 
 
-	# ****** PROXY-TO-SERVER communications ****
-	def connect_to_server(buffer, stream_obj):
+	# ****** PROXY-TO-WEBSERVER communications ******
+	def connect_to_server(self, host_address, stream_obj):
 		print 'connect_to_server'
 		# Opens a socket and connect to the server host
 		hostsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		host_address = (host, hostport)
+		(host, hostport) = host_address 
 		# print "Attempting connections to " + host + ":" + str(hostport)
 		connect_ret = hostsocket.connect_ex(host_address) 
 
 		if (connect_ret != 0):
 			print "host server connection error: " + str(connect_ret)
 			# router.send Relay Begin Failed down the circuit
-			return
+			return -1
 
-		# router.send Relay Connected
-		# start timer for this stream (5 min?) close stream at that point
-		# 
-		try:
-			while True:
-				time.sleep(SLEEP_TIME_BETWEEN_RECEIVING_DATA)
-				data = hostsocket.recv(SOCKET_RECV_SIZE)
-				if data: 
-					stream_obj.sendAllToRouter(data)
-					reset_timer(thisConnection)
-				elif connect_tunneling:
-					if thisConnection['isClosed']:
-						break
-				else:
-					break
-		except Exception as e:
-			pprint(e)
-		finally:
+		thisConnection = {
+				"hostsocket" : hostsocket,
+				"isClosed": False,
+				"timerLock" : threading.Lock(),
+				"stream_obj" 	: stream_obj
+		}
+		timer = threading.Timer(TorProxy.SERVER_TIMEOUT, TorProxy.timeout_function, (thisConnection,))
+		timer.start()
+		thisConnection['timer'] = timer
+
+		# Spawn a thread to listen to buffer and write to hostsocket
+
+		connect_handle_thread = threading.Thread(target=self.handle_writing_to_server, args=(thisConnection,))
+		connect_handle_thread.setDaemon(True)
+		connect_handle_thread.start()
+
+		connect_handle_thread = threading.Thread(target=self.handle_reading_from_server, args=(thisConnection,))
+		connect_handle_thread.setDaemon(True)
+		connect_handle_thread.start()
+
+		return 1
+
+	def handle_reading_from_server(self, thisConnection):
+		print "Begin reading from server. Write to buffer."
+	# try:
+		while True:
+			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
+			data = thisConnection['hostsocket'].recv(TorProxy.SOCKET_RECV_SIZE)
+			print "$$$$$$$$$$$$$$$$$ READ FROM SERVER: ", data
+			if data: 
+				thisConnection['stream_obj'].sendAllToRouter(data)
+				TorProxy.reset_timer(thisConnection)
+			else:
+				thisConnection['isClosed'] = True
+				break
+			if thisConnection['isClosed']:
+				break
+		# except Exception as e:
+		# 	pprint(e)
+		# finally:
 			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
-			closeSockets(clientsocket, hostsocket)
-			terminate()
+		thisConnection['hostsocket'].close()
+		thisConnection['stream_obj'].closeStream()
+		terminate()
+
+	# Read from router, send to server
+	def handle_writing_to_server(self, thisConnection):
+		print "begin writing to server"
+		# try:
+		while True:
+			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
+			# data = hostsocket.recv(SOCKET_RECV_SIZE)
+			data = thisConnection['stream_obj'].getNextFromRouter()
+			print "WRITE TO SERVER ", data
+			if data: 
+				thisConnection['hostsocket'].sendall(data)
+				# data = stream_obj.getNextFromRouter()
+				TorProxy.reset_timer(thisConnection)
+			else:
+				thisConnection['isClosed'] = True
+				break
+			if thisConnection['isClosed']:
+				break
+
+		# except Exception as e:
+			# pprint(e)
+		# finally:
+			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
+		thisConnection['hostsocket'].close()
+		thisConnection['stream_obj'].closeStream()
+		terminate()
 

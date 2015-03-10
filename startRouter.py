@@ -50,7 +50,7 @@ def main():
 		terminate(router)
 
 	while (IS_RUNNING):
-		print ' is running '
+		#print ' is running '
 		continue
 
 	terminate(router)

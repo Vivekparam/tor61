@@ -33,6 +33,7 @@ class Tor61Connection(object):
 		self.state = Tor61Connection.State.init
 		self.circuit_id_to_circuit_objs = {}
 		self.we_are_initiator = we_are_initiator
+		print "PARTNER IP PORT ", partner_ip_port 
 		self.partner_ip_port = partner_ip_port
 		self.source_outgoing_c_id = 1
 		self.next_circuit_num_lock = threading.Lock()
@@ -93,7 +94,7 @@ class Tor61Connection(object):
 			# Get list of routers we can use
 			# select one at random
 		else:
-			print "We are not source in sendCreate. Grabbing lock for circuitnum."
+			# print "We are not source in sendCreate. Grabbing lock for circuitnum."
 			# In this case, we might be asked to extend by someone else to a destination
 			# to whom the other end was the source of the TCP connection
 			self.next_circuit_num_lock.acquire()
@@ -104,17 +105,15 @@ class Tor61Connection(object):
 			
 		self.circuit_id_to_circuit_objs[c_id] = circuit_obj
 		# send create & wait for CREATE CREATE_FAILED
-		print "Getting lock for receive_created_condition."
 		circuit_obj.receive_created_condition.acquire()
-		print 'Sending CELL_TYPE_CREATE on circuit' + str(c_id) 
 		circuit_obj.receive_created_condition.success = 0
 		self.send(c_id, Tor61Connection.CELL_TYPE_CREATE)
-		print "Waiting for create response."
 		circuit_obj.receive_created_condition.wait(10)
 		circuit_obj.receive_created_condition.release()
 
 		if (circuit_obj.receive_created_condition.success == 1):
 			print 'send create success'
+			circuit_obj.onCreated()
 		else: 
 			return (0, None)
 			print 'send CREATE failed'
@@ -148,6 +147,7 @@ class Tor61Connection(object):
 		while(True):
 			data = self.socket_buffer.get(True)
 			# print "Sending data: " + data + " of length " + str(len(data))
+
 			self.socket.sendall(data)
 
 	def socket_reader(self):
@@ -157,7 +157,7 @@ class Tor61Connection(object):
 			while (length_received < 512):
 				data = self.socket.recv(512 - length_received)
 				length_received += len(data)
-				print "Got data: " + data + " (Length so far is: " + str(length_received) + ")"
+				# print "Got data: " + data + " (Length so far is: " + str(length_received) + ")"
 				if not (data):
 					print "no more received data"
 					# on error
@@ -169,6 +169,7 @@ class Tor61Connection(object):
 			connect_handle_thread = threading.Thread(target=self.handleCell, args=(cell,))
 			connect_handle_thread.setDaemon(True)
 			connect_handle_thread.start()
+			# self.handleCell(cell)
 
 	def startReaderWriter(self):
 		# Spawn socket writing thread
@@ -184,9 +185,10 @@ class Tor61Connection(object):
 
 	def handleCell(self, cell):
 		c_id, cell_type = struct.unpack('>HB' + ('x' * 509), cell)
-		print "***** HANDLE_CELL ***** cell type:" + str(cell_type) + " on circuit " +str(c_id)
+		print "MESSAGE FROM ", self.partner_ip_port, " with cid: ", str(c_id)
 		if(cell_type == Tor61Connection.CELL_TYPE_OPENED):
 			# self.opened_condition.cell_type = CELL_TYPE_OPENED
+			print "***** HANDLE_CELL ***** CELL_TYPE_OPENED on circuit " + str(c_id)
 
 			self.opened_condition.acquire()
 			self.opened_condition.notify()
@@ -195,6 +197,8 @@ class Tor61Connection(object):
 			# self.onOpened()
 			self.state = Tor61Connection.State.opened 
 		elif(cell_type == Tor61Connection.CELL_TYPE_OPEN):
+			print "***** HANDLE_CELL ***** CELL_TYPE_OPEN on circuit " + str(c_id)
+
 			# should be the first cell received on this new Tor61 if self.we_are_initiator == False
 			self.open_condition.acquire()
 			self.open_condition.notify()
@@ -209,16 +213,25 @@ class Tor61Connection(object):
 			self.state = Tor61Connection.State.opened
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_RELAY):
+			print "***** HANDLE_CELL ***** CELL_TYPE_RELAY on circuit " + str(c_id)
+
 			self.onRelay(cell, self.partner_ip_port)
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_DESTROY):
+			print "***** HANDLE_CELL ***** CELL_TYPE_DESTROY on circuit " + str(c_id)
+
 			self.onDestroy(cell)
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_CREATE):
+			print "***** HANDLE_CELL ***** CELL_TYPE_CREATE on circuit " + str(c_id)
+
 			self.send(c_id, Tor61Connection.CELL_TYPE_CREATED)
+			self.circuit_id_to_circuit_objs[c_id] = Circuit(c_id)
 			# self.onCreate(cell)
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_CREATED):
+			print "***** HANDLE_CELL ***** CELL_TYPE_CREATED on circuit " + str(c_id)
+
 			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
 			circuit_obj.receive_created_condition.acquire()
 			circuit_obj.receive_created_condition.notify()
@@ -226,16 +239,22 @@ class Tor61Connection(object):
 			circuit_obj.receive_created_condition.release()
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_OPEN_FAILED):
+			print "***** HANDLE_CELL ***** CELL_TYPE_OPEN_FAILED on circuit " + str(c_id)
+
 			self.opened_condition.cell_type = Tor61Connection.CELL_TYPE_OPEN_FAILED
 			self.opened_condition.notify()
 			self.onOpenFailed(cell)
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_CREATE_FAILED):
+			print "***** HANDLE_CELL ***** CELL_TYPE_CREATE_FAILED on circuit " + str(c_id)
+
 			circuit_obj = self.circuit_id_to_circuit_objs[c_id]
 			circuit_obj.receive_created_condition.acquire()
 			circuit_obj.receive_created_condition.notify()
 			circuit_obj.receive_created_condition.success = 0
 			circuit_obj.receive_created_condition.release()
+		else:
+			print "UNKOWN CELL TYPE ", cell_type
 
 	def getCircuitObj(self, c_id):
 		return self.circuit_id_to_circuit_objs[c_id]
@@ -276,7 +295,7 @@ class Tor61Connection(object):
 			body = bytes(kwargs['body'])
 			cell = struct.pack('>HBHHIHB%ds' % (body_len,) + ('x' * (Tor61Connection.PADDING_RELAY - body_len)) , c_id, cell_type, kwargs['stream_id'], 
 				zeroes, digest, kwargs['body_length'], kwargs['relay_cmd'], body)
-			print 'sending cell length of: ' + str(len(cell))
+			# print 'sending cell length of: ' + str(len(cell))
 		else:
 			print "UNKNOWN CELL TYPE " , cell_type 
 			return -1
@@ -295,3 +314,14 @@ class Tor61Connection(object):
 	def getSourceOutgoingCircuitId(self):
 		return self.source_outgoing_c_id
 
+	def startReadingFromStreamBuffer(self, stream_obj):
+		# Spawn socket writing thread
+		connect_handle_thread = threading.Thread(target=self.stream_buffer_reader, args=(stream_obj,))
+		connect_handle_thread.setDaemon(True)
+		connect_handle_thread.start()
+
+	def stream_buffer_reader(self, stream_obj):
+		while(True):
+			print "WAITING FOR NEXT ELEMENT FROM PROXY"
+			data = stream_obj.getNextFromProxy()
+			self.socket_buffer.put(data)
