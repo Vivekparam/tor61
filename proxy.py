@@ -20,9 +20,10 @@ def terminate():
 
 class TorProxy(object):
 	SLEEP_TIME_BETWEEN_RECEIVING_DATA = 0.1
-	TIMEOUT = 10 # seconds
+	TIMEOUT = 60*10 # seconds
 	SERVER_TIMEOUT = 60*10 # seconds
 	SOCKET_RECV_SIZE = 256
+	TIME_THRESHOLD = 10 * 60
 
 	class State(object):
 		init = 0
@@ -152,15 +153,13 @@ class TorProxy(object):
 		thisConnection = {
 			"clientsocket" : clientsocket,
 			"isClosed": False,
-			"timerLock" : threading.Lock(),
 			"stream_obj" 	: stream_obj
 		}
+		thisConnection['prev_time'] = time.time()
 		# send a 200 OK reponse 
 		if connect_tunneling:	# HTTP CONNECT
 			print "connect tunneling"
 			clientsocket.send('HTTP/1.0 200 OK\r\n\r\n')
-
-			# initialize and start timer
 
 			connect_handle_thread = threading.Thread(target=self.handle_forwarding_to_router, args=(thisConnection,))
 			connect_handle_thread.setDaemon(True)
@@ -171,26 +170,23 @@ class TorProxy(object):
 			stream_obj.sendAllToRouter(header_buffer + "\r\n")
 			# stream_obj.closeStream()
 			# return
-		timer = threading.Timer(TorProxy.TIMEOUT, TorProxy.timeout_function, (thisConnection,))
-		timer.start()
-		thisConnection['timer'] = timer
 
 		# Here, we become the Proxy-side buffer-to-client writing thread
 		# try:
-		while True:
+
+		while time.time() - thisConnection['prev_time'] < TorProxy.TIME_THRESHOLD :
 			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 			# data = hostsocket.recv(SOCKET_RECV_SIZE)
 			data = stream_obj.getNextFromRouter()
 			if data: 
 				clientsocket.sendall(data)
 				# data = stream_obj.getNextFromRouter()
-				TorProxy.reset_timer(thisConnection)
+				thisConnection['prev_time'] = time.time()
 			elif connect_tunneling:
 				if thisConnection['isClosed']:
-					# stream_obj.closeStream()
 					break
-				# else:
-				# 	break
+			else:
+				break
 		# except Exception as e:
 		# 	pprint(e)
 		# finally:
@@ -204,32 +200,23 @@ class TorProxy(object):
 	def timeout_function(connection):
 		connection['isClosed'] = True
 
-	# resets the timer for both tunnels 
-	@staticmethod
-	def reset_timer(connection):
-		#print "set_timer"
-		connection['timerLock'].acquire() 
-		timer = connection['timer']
-		if timer is not None:
-			timer.cancel()
-		timer = threading.Timer(TorProxy.TIMEOUT, TorProxy.timeout_function, (connection,))
-		timer.start()
-		connection['timerLock'].release() 
 
 	# a thread for tunnel from client -> proxy -> server
 	def handle_forwarding_to_router(self, thisConnection):
 		print 'handle_forwarding_to_router'
 		# try:
 		stream_obj = thisConnection['stream_obj']
-		while True:
+		thisConnection['prev_time'] = time.time()
+		while time.time() - thisConnection['prev_time'] < TorProxy.TIME_THRESHOLD:
 			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 
-			data = thisConnection['clientsocket'].recv(TorProxy.SOCKET_RECV_SIZE) 
-			TorProxy.reset_timer(thisConnection)
+			data = thisConnection['clientsocket'].recv(TorProxy.SOCKET_RECV_SIZE)
+			print data 
 			if data:
 				# thisConnection['hostsocket'].sendall(data)
 				# TODO: Write to buffer to router side
 				stream_obj.sendAllToRouter(data)
+				thisConnection['prev_time'] = time.time()
 			elif thisConnection['isClosed']:
 				break
 		# except Exception as e:
@@ -253,18 +240,16 @@ class TorProxy(object):
 		if (connect_ret != 0):
 			print "host server connection error: " + str(connect_ret)
 			# router.send Relay Begin Failed down the circuit
+
 			return -1
 
 		thisConnection = {
 				"hostsocket" : hostsocket,
 				"isClosed": False,
-				"timerLock" : threading.Lock(),
-				"stream_obj" 	: stream_obj
+				"stream_obj" 	: stream_obj,
+				"prev_time"	:	time.time()
 		}
-		timer = threading.Timer(TorProxy.SERVER_TIMEOUT, TorProxy.timeout_function, (thisConnection,))
-		timer.start()
-		thisConnection['timer'] = timer
-
+	
 		# Spawn a thread to listen to buffer and write to hostsocket
 
 		connect_handle_thread = threading.Thread(target=self.handle_writing_to_server, args=(thisConnection,))
@@ -280,18 +265,18 @@ class TorProxy(object):
 	def handle_reading_from_server(self, thisConnection):
 		print "Begin reading from server. Write to buffer."
 	# try:
-		while True:
+		while time.time() - thisConnection['prev_time'] < TorProxy.TIME_THRESHOLD:
 			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 			data = thisConnection['hostsocket'].recv(TorProxy.SOCKET_RECV_SIZE)
-			print "$$$$$$$$$$$$$$$$$ READ FROM SERVER: ", data
+			# print "$$$$$$$$$$$$$$$$$ READ FROM SERVER: ", data
 			if data: 
 				thisConnection['stream_obj'].sendAllToRouter(data)
-				TorProxy.reset_timer(thisConnection)
+				thisConnection['prev_time'] = time.time()
 			else:
 				thisConnection['isClosed'] = True
 				break
-			if thisConnection['isClosed']:
-				break
+		print "TIMEOUT_T reading from server."
+
 		# except Exception as e:
 		# 	pprint(e)
 		# finally:
@@ -304,21 +289,19 @@ class TorProxy(object):
 	def handle_writing_to_server(self, thisConnection):
 		print "begin writing to server"
 		# try:
-		while True:
+		while time.time() - thisConnection['prev_time'] < TorProxy.TIME_THRESHOLD:
 			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
 			# data = hostsocket.recv(SOCKET_RECV_SIZE)
 			data = thisConnection['stream_obj'].getNextFromRouter()
-			print "WRITE TO SERVER ", data
+			#print "WRITE TO SERVER ", data
 			if data: 
 				thisConnection['hostsocket'].sendall(data)
 				# data = stream_obj.getNextFromRouter()
-				TorProxy.reset_timer(thisConnection)
+				thisConnection['prev_time'] = time.time()
 			else:
 				thisConnection['isClosed'] = True
 				break
-			if thisConnection['isClosed']:
-				break
-
+		print "TIMEOUT_T writing to server."
 		# except Exception as e:
 			# pprint(e)
 		# finally:

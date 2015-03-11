@@ -233,9 +233,9 @@ class TorRouter(object):
 		redirect_entry = self.lookUpRoutingTable(tor61_partner_ip_port, c_id)		
 		tor61connection = self.router_ip_to_tor_objs[tor61_partner_ip_port]
 		pprint(tor61_partner_ip_port)
-		print c_id
-		pprint(self.router_ip_to_tor_objs)
-		pprint(self.routing_table)
+		# print c_id
+		# pprint(self.router_ip_to_tor_objs)
+		# pprint(self.routing_table)
 		if (redirect_entry ):	# forward it to the next
 			if c_id != tor61connection.getSourceOutgoingCircuitId() or relay_cmd != TorRouter.RELAY_EXTENDED :
 				# tor61_partner_ip_port
@@ -243,20 +243,20 @@ class TorRouter(object):
 			
 				(host_addr, new_c_id) = redirect_entry
 				redirect_tor61 = self.router_ip_to_tor_objs.get(host_addr)
-				print "---------------forwarding: cid: ", new_c_id
-				print "new_c_id ", new_c_id
-				print "cell_type", cell_type
-				print "stream_id", stream_id
-				print "Zeroes", zeroes
-				print "digest", digest
-				print "body_length", body_length
-				print "relay_cmd", relay_cmd
-				print "body_padding", body_padding
-				print "----------------------------------"
+				# print "---------------forwarding: cid: ", new_c_id
+				# print "new_c_id ", new_c_id
+				# print "cell_type", cell_type
+				# print "stream_id", stream_id
+				# print "Zeroes", zeroes
+				# print "digest", digest
+				# print "body_length", body_length
+				# print "relay_cmd", relay_cmd
+				# # print "body_padding", body_padding
+				# print "----------------------------------"
 			
 				new_cell = struct.pack('>HBHHIHB%ds' % (498,), new_c_id, cell_type, stream_id, 
 					zeroes, digest, body_length, relay_cmd, body_padding)
-				print "forwarding packet ", new_cell
+				# print "forwarding packet ", new_cell
 				self.forwardToTor61(redirect_tor61, new_cell)
 				return
 

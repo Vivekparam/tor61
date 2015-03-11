@@ -22,7 +22,7 @@ def PrintException():
 #      ...
 
 # Change these as necessary
-REGISTRATION_SERVICE_HOST = "barney.cs.washington.edu"
+REGISTRATION_SERVICE_HOST = "cse461.cs.washington.edu"
 REGISTRATION_SERVICE_IP = socket.gethostbyname(REGISTRATION_SERVICE_HOST);
 REGISTRATION_SERVICE_PORT = 46101
 

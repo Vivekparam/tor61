@@ -4,11 +4,13 @@ import struct
 import threading
 from Queue import Queue
 from circuit import Circuit
+from stream import TorStream
 
 class Tor61Connection(object):
 	class State(object):
 		init = 0
 		opened = 1
+		stopped = 2
 		failed = 3
 	
 	ZERO_CIRCUIT = 0x0000
@@ -144,14 +146,14 @@ class Tor61Connection(object):
 			return -2
 
 	def socket_writer(self):
-		while(True):
+		while(self.state != Tor61Connection.State.stopped and self.state != Tor61Connection.State.failed):
 			data = self.socket_buffer.get(True)
 			# print "Sending data: " + data + " of length " + str(len(data))
 
 			self.socket.sendall(data)
 
 	def socket_reader(self):
-		while (True):
+		while (self.state != Tor61Connection.State.stopped and self.state != Tor61Connection.State.failed):
 			length_received = 0
 			cell = ""
 			while (length_received < 512):
@@ -165,7 +167,7 @@ class Tor61Connection(object):
 				else:
 					cell += data
 			# spawn handle-cell thread
-			print "Calling handleCell with data: " + cell + " of length " + str(len(cell))
+			# print "Calling handleCell with data: " + cell + " of length " + str(len(cell))
 			connect_handle_thread = threading.Thread(target=self.handleCell, args=(cell,))
 			connect_handle_thread.setDaemon(True)
 			connect_handle_thread.start()
@@ -219,7 +221,7 @@ class Tor61Connection(object):
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_DESTROY):
 			print "***** HANDLE_CELL ***** CELL_TYPE_DESTROY on circuit " + str(c_id)
-
+			self.state = Tor61Connection.State.stopped
 			self.onDestroy(cell)
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_CREATE):
@@ -321,7 +323,12 @@ class Tor61Connection(object):
 		connect_handle_thread.start()
 
 	def stream_buffer_reader(self, stream_obj):
-		while(True):
+		while(self.state != Tor61Connection.State.stopped 
+			and self.state != Tor61Connection.State.failed
+			and stream_obj.state != TorStream.State.stopped
+			and stream_obj.state != TorStream.State.failed):
 			print "WAITING FOR NEXT ELEMENT FROM PROXY"
-			data = stream_obj.getNextFromProxy()
-			self.socket_buffer.put(data)
+			data = stream_obj.getNextFromProxy(5)
+			if(data):
+				self.socket_buffer.put(data)
+		print "ahhhhhhhh dying!!!!!"

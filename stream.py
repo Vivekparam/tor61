@@ -1,7 +1,7 @@
 # Jacqueline Lee and Vivek Paramasivam, 
 # CSE 461 Winter 2015
 
-from Queue import Queue 
+from Queue import Queue, Empty
 import threading
 import struct
 from pprint import pprint
@@ -65,21 +65,28 @@ class TorStream(object):
 		return False
 
 	def closeStream(self):
-		# self.state = TorStream.State.stopped
-		pass
+		self.state = TorStream.State.stopped
+		print "------------------------------closeStream-------"
+		# pass
 
 	# Define the operations which transfer data from 
 	# Buffer to Proxy and vice-versa
 
 	def getNextFromRouter(self):
 		data = self.bufferToProxy.get(True) # block until something is there
-		print "GOT DATA FROM ROUTER. RETURNING IT ", data
+		# print "GOT DATA FROM ROUTER. RETURNING IT ", data
 		return data
 
-	def getNextFromProxy(self):
-		data = self.bufferToRouter.get(True) # block until something is there
-		print "&&&&&&&&&&&&&&&&&&&&&&&&&&&GOT DATA FROM PROXY. RETURNING IT ", data
-
+	def getNextFromProxy(self, timeout=None):
+		if(timeout):
+			try:
+				data = self.bufferToRouter.get(True, timeout) # block until something is there (or timeout)
+			except Empty:
+				print "get timed out. Returning none."
+				return None
+		else:
+			data = self.bufferToRouter.get(True) # block until something is there
+		# print "&&&&&&&&&&&&&&&&&&&&&&&&&&&GOT DATA FROM PROXY. RETURNING IT ", data
 		return data
 
 	# Multiplexes to router side / tor61 network
@@ -87,7 +94,7 @@ class TorStream(object):
 		entire_data = data
 		while(len(entire_data) > 0):
 			data = entire_data[:400]
-			print "SENDDDDDDING FROM CLIENT TO ROUTER: ", data 
+			# print "SENDDDDDDING FROM CLIENT TO ROUTER: ", data 
 			zeroes = 0x0000
 			# print 'padding length of ' + str(Tor61Connection.PADDING_RELAY - kwargs['body_length'])
 			# print 'body length of ' + str(len( kwargs['body']))
@@ -96,16 +103,16 @@ class TorStream(object):
 			body_len = len(data)
 			cell = struct.pack('>HBHHIHB%ds' % (body_len,) + ('x' * (TorStream.PADDING_RELAY - body_len)) , self.c_id, TorStream.CELL_TYPE_RELAY, self.streamNum, 
 								zeroes, TorStream.RELAY_DIGEST_CONSTANT, body_len, TorStream.RELAY_CMD_DATA, body)
-			print "--------------- mulitplexing and SENDDDDDDING to buffer:"
-			print "new_c_id ", self.c_id
-			print "cell_type", TorStream.CELL_TYPE_RELAY
-			print "stream_id", self.streamNum
-			print "Zeroes", zeroes
-			print "digest", TorStream.RELAY_DIGEST_CONSTANT
-			print "body_length", body_len
-			print "relay_cmd", TorStream.RELAY_CMD_DATA
-			print "body_padding", body
-			print "----------------------------------"
+			# print "--------------- mulitplexing and SENDDDDDDING to buffer:"
+			# print "new_c_id ", self.c_id
+			# print "cell_type", TorStream.CELL_TYPE_RELAY
+			# print "stream_id", self.streamNum
+			# print "Zeroes", zeroes
+			# print "digest", TorStream.RELAY_DIGEST_CONSTANT
+			# print "body_length", body_len
+			# print "relay_cmd", TorStream.RELAY_CMD_DATA
+			# print "body_padding", body
+			# print "----------------------------------"
 			# print 'sending cell length of: ' + str(len(cell))
 			self.bufferToRouter.put(cell)
 			# pprint(self.bufferToRouter)
@@ -113,7 +120,7 @@ class TorStream(object):
 
 	# Demultplexes to send to proxy / server network
 	def sendAllToProxy(self, data):
-		print "SENDDDDDDING TO PROXY: ", data 
+		# print "SENDDDDDDING TO PROXY: ", data 
 		# demultiplexing happens in the router.handleRelay
 		self.bufferToProxy.put(data)
 
