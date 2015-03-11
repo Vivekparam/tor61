@@ -5,6 +5,7 @@ from Queue import Queue, Empty
 import threading
 import struct
 from pprint import pprint
+import time
 # A stream object represents 
 # a Tor stream on a circuit
 class TorStream(object):
@@ -72,17 +73,28 @@ class TorStream(object):
 	# Define the operations which transfer data from 
 	# Buffer to Proxy and vice-versa
 
-	def getNextFromRouter(self):
-		data = self.bufferToProxy.get(True) # block until something is there
+	def getNextFromRouter(self, timeout=None):
+		if (self.state != TorStream.State.running):
+			return None
+		if(timeout):
+			try:
+				data = self.bufferToProxy.get(True, timeout) # block until something is there
+			except Empty:
+				# print "get timed out. Returning none."
+				return None
+		else:
+			data = self.bufferToProxy.get(True, timeout) # block until something is there
 		# print "GOT DATA FROM ROUTER. RETURNING IT ", data
 		return data
 
 	def getNextFromProxy(self, timeout=None):
+		if (self.state != TorStream.State.running):
+			return None
 		if(timeout):
 			try:
 				data = self.bufferToRouter.get(True, timeout) # block until something is there (or timeout)
 			except Empty:
-				print "get timed out. Returning none."
+				# print "get timed out. Returning none."
 				return None
 		else:
 			data = self.bufferToRouter.get(True) # block until something is there
@@ -91,7 +103,12 @@ class TorStream(object):
 
 	# Multiplexes to router side / tor61 network
 	def sendAllToRouter(self, data):
+		if (self.state != TorStream.State.running):
+			print "stream ", self.streamNum, " is not running"
+			return -1
 		entire_data = data
+		print "LENGTH OF INITIAL DATA IS: ", len(entire_data)
+
 		while(len(entire_data) > 0):
 			data = entire_data[:400]
 			# print "SENDDDDDDING FROM CLIENT TO ROUTER: ", data 
@@ -117,14 +134,23 @@ class TorStream(object):
 			self.bufferToRouter.put(cell)
 			# pprint(self.bufferToRouter)
 			entire_data = entire_data[400:]
+			print "LENGTH OF REMAINING DATA IS: ", len(entire_data), " while body_len: ", body_len
+			time.sleep(0.1)
+		return 1
+
 
 	# Demultplexes to send to proxy / server network
 	def sendAllToProxy(self, data):
+		if (self.state != TorStream.State.running):
+			print "stream ", self.streamNum, " is not running"
+			return -1
 		# print "SENDDDDDDING TO PROXY: ", data 
 		# demultiplexing happens in the router.handleRelay
 		self.bufferToProxy.put(data)
+		return 1
 
 	def sendOKOverTCP(self):
+		# check if state == running
 		ok_message = ('HTTP/1.0 200 OK\r\n\r\n')
 		self.bufferToProxy.put(ok_message)
 

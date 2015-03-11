@@ -34,6 +34,7 @@ class Tor61Connection(object):
 	def __init__(self, partner_ip_port, socket, we_are_initiator):
 		self.state = Tor61Connection.State.init
 		self.circuit_id_to_circuit_objs = {}
+		self.circuit_id_to_circuit_objs_lock = threading.Lock()
 		self.we_are_initiator = we_are_initiator
 		print "PARTNER IP PORT ", partner_ip_port 
 		self.partner_ip_port = partner_ip_port
@@ -72,6 +73,7 @@ class Tor61Connection(object):
 		# Wait for either OPENED or OPEN_FAILED response
 		self.opened_condition.wait(10) # secs
 		self.opened_condition.release()
+
 		
 		# cell_type = self.opened_condition.cell_type
 
@@ -163,9 +165,9 @@ class Tor61Connection(object):
 				if not (data):
 					print "no more received data"
 					# on error
-					break
+					return
 				else:
-					cell += data
+					cell += data	
 			# spawn handle-cell thread
 			# print "Calling handleCell with data: " + cell + " of length " + str(len(cell))
 			connect_handle_thread = threading.Thread(target=self.handleCell, args=(cell,))
@@ -222,7 +224,7 @@ class Tor61Connection(object):
 		elif(cell_type == Tor61Connection.CELL_TYPE_DESTROY):
 			print "***** HANDLE_CELL ***** CELL_TYPE_DESTROY on circuit " + str(c_id)
 			self.state = Tor61Connection.State.stopped
-			self.onDestroy(cell)
+			self.onDestroy(cell, self.partner_ip_port)
 
 		elif(cell_type == Tor61Connection.CELL_TYPE_CREATE):
 			print "***** HANDLE_CELL ***** CELL_TYPE_CREATE on circuit " + str(c_id)
@@ -264,12 +266,16 @@ class Tor61Connection(object):
 	def forward(self, c_id, cell):
 		 new_cell = struct.pack_into('>H', cell, 0, c_id)
 
-	# callbacks
-	# def addOpenListener(self, callback):
-	# 	self.onOpen = callback
+	
+	def removeCircuit(self, c_id):
+		self.circuit_id_to_circuit_objs_lock.acquire()
+		self.circuit_id_to_circuit_objs.pop(c_id) # TODO add None
+		self.circuit_id_to_circuit_objs_lock.release()
 
-	def addOnCreateListener(self, callback):
-		self.onCreate = callback
+	# callbacks
+
+	def addOnDestroyHandler(self, callback):
+		self.onDestroy= callback
 
 	def addOnRelayHandler(self, callback):
 		self.onRelay = callback
@@ -313,6 +319,15 @@ class Tor61Connection(object):
 	def sendRelayCell(self, cell):
 		self.socket_buffer.put(cell)
 
+	# This sends destroy cells with all cids
+	def sendDestroy(self):
+		self.circuit_id_to_circuit_objs_lock.acquire()
+		for key in self.circuit_id_to_circuit_objs:
+			print "send destroy with cid ", key
+			self.send(key, Tor61Connection.CELL_TYPE_DESTROY)
+		self.circuit_id_to_circuit_objs_lock.release()
+
+
 	def getSourceOutgoingCircuitId(self):
 		return self.source_outgoing_c_id
 
@@ -327,8 +342,8 @@ class Tor61Connection(object):
 			and self.state != Tor61Connection.State.failed
 			and stream_obj.state != TorStream.State.stopped
 			and stream_obj.state != TorStream.State.failed):
-			print "WAITING FOR NEXT ELEMENT FROM PROXY"
-			data = stream_obj.getNextFromProxy(5)
+			# print "WAITING FOR NEXT ELEMENT FROM PROXY on stream_id = ", stream_obj.streamNum
+			data = stream_obj.getNextFromProxy(100)
 			if(data):
 				self.socket_buffer.put(data)
-		print "ahhhhhhhh dying!!!!!"
+		print "ahhhhhhhh dying!!!!!!!!!!!!!!!!  stream_id = ", stream_obj.streamNum

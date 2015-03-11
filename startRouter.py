@@ -10,18 +10,26 @@ IS_RUNNING = True
 # Loops until reading eof or 'q'
 # from stdin, then sets server_is_running
 # to false and terminates thread.
+router = None
+proxy = None
 def readForEof():
 	try: 
 		while True:
 			uin = sys.stdin.readline().strip()
 			if not uin or (uin is 'q'):
-				if not uin: print "eof"
+				if not uin: print "eof -- exiting"
 				# got eof
 				IS_RUNNING = False
 				sys.exit()
 	except KeyboardInterrupt:
 		server_is_running = False
-		sys.exit()
+		print "calling exit"
+		exit()
+
+def exit():
+	router.exit()
+	proxy.exit()
+	sys.exit()
 
 def terminate(router):
 	router.killRouter()
@@ -29,10 +37,11 @@ def terminate(router):
 
 def main():
 		# Create thread which reads from stdin
-	user_input_thread = threading.Thread(target=readForEof)
-	user_input_thread.setDaemon(True)
-	user_input_thread.start()
-
+	# user_input_thread = threading.Thread(target=readForEof)
+	# user_input_thread.setDaemon(True)
+	# user_input_thread.start()
+	global proxy
+	global router
 	proxy = TorProxy()
 	router = TorRouter()
 	proxy.addRouter(router)
@@ -43,17 +52,26 @@ def main():
 	if(ret != 1) :
 		print "Error starting proxy."
 		terminate(router)
+		exit()
 	
 	ret = router.start()
 	if(ret < 0) :
 		print "Error starting router."
 		terminate(router)
+		exit()
 
-	while (IS_RUNNING):
-		#print ' is running '
-		continue
+	try: 
+		while True:
+			uin = sys.stdin.readline().strip()
+			if not uin or (uin is 'q'):
+				if not uin: print "eof -- exiting"
+				break
+	except KeyboardInterrupt:
+		print "calling exit"
+	finally:
+		exit()
 
-	terminate(router)
+
 	# Todo: health check on each other?
 
 main()

@@ -28,6 +28,7 @@ class Circuit(object):
 		return self.stream_id_to_stream_objs[stream_id]
 
 	def createStream(self, c_id,  stream_id=None): 
+		stream = None
 		if(stream_id == None):
 			# case in which we are source router on this straem
 			self.next_stream_id_num_lock.acquire()
@@ -38,6 +39,7 @@ class Circuit(object):
 		else:
 			stream = TorStream(stream_id, c_id)
 			self.stream_id_to_stream_objs[stream_id] = stream
+		stream.state = TorStream.State.running
 		return stream
 
 	# only for the self.id == 1 circuit

@@ -10,6 +10,7 @@ import sys
 import threading
 import socket
 import struct
+import random
 from pprint import pprint
 
 class TorRouter(object):
@@ -53,6 +54,11 @@ class TorRouter(object):
 
 		# x.addRelayExtendListener(relayExtendListener)
 
+	def exit(self):
+		for key in self.router_ip_to_tor_objs:
+			tor61connection = self.router_ip_to_tor_objs[key]
+			tor61connection.sendDestroy()
+		print "router exit"
 
 	# This brings up the router.
 	# We contact the registration service,
@@ -87,14 +93,17 @@ class TorRouter(object):
 				# 	#print 'not enough routers available ' + str(len(lines))
 				# 	#print lines[0]
 				# 	continue
-				line = lines[0].split('\t')
-				partner_host_addr = (line[0], int(line[1]))
-				print "Attempting to connect TCP to :" + str(partner_host_addr)
-				# establish TCP 
-				socket = TorRouter.createTCPConnection(partner_host_addr)
+				retval = -1
+				if (len(lines) > 1):
+					rand = random.randint(0, len(lines) - 2)
+					line = lines[rand].split('\t')
+					partner_host_addr = (line[0], int(line[1]))
+					print "Attempting to connect TCP to :" + str(partner_host_addr)
+					# establish TCP 
+					socket = TorRouter.createTCPConnection(partner_host_addr)
 
-				(retval, tor61connection) = self.createTor61Connection( partner_host_addr, socket, True, 
-																		opener_agent_id=self.agent_id, opened_agent_id=line[2])
+					(retval, tor61connection) = self.createTor61Connection( partner_host_addr, socket, True, 
+																			opener_agent_id=self.agent_id, opened_agent_id=line[2])
 			except IndexError:
 				self.killRouter()
 
@@ -102,6 +111,7 @@ class TorRouter(object):
 		self.sourceTor61Connection = tor61connection
 
 		#	Create circuit -- this blocks until response or timeout
+		self.router_ip_to_tor_objs[partner_host_addr] = tor61connection
 		retval, circuit_obj = self.sourceTor61Connection.sendCreate(True)
 		# self.routing_table[(partner_host_addr, circuit_obj.getCid())] = None
 		if(retval != 1):
@@ -113,7 +123,8 @@ class TorRouter(object):
 		for i in range (1, 3):
 			print "Beginning iteration ", i ," of loop."
 			print 'circuit_obj.state ' + str(circuit_obj.state)
-			line = lines[0].split('\t')
+			rand = random.randint(0, len(lines) - 2)
+			line = lines[rand].split('\t')
 			secondHopAddr = (line[0], line[1]) # "ip:por0<agentid>", get from registration
 			body_message = line[0] + ":" + line[1] + '\0' + line[2]
 			print "body message: " + body_message + " LENGTH OF BODY MESSAGE IS " + str(len(body_message))
@@ -204,6 +215,7 @@ class TorRouter(object):
 		stream_obj.unlockForConnected()
 		if (stream_obj.state != TorStream.State.running):
 			return (0, None)
+
 		return (1, stream_obj)
 
 	def addProxy(self, proxy):
@@ -223,6 +235,35 @@ class TorRouter(object):
 		c_id, cell_type, padding = struct.unpack('>HBs', cell)
 		self.sourceTor61Connection.getCircuit(c_id).onCreate()
 		# this is an error... we should only send create once and get created once... 
+
+	def onDestroyCell(self, cell, tor61_partner_ip_port):
+		# 
+		c_id, cell_type = struct.unpack('>HB' + ('x' * 509), cell)
+
+		redirect_entry = self.lookUpRoutingTable(tor61_partner_ip_port, c_id)
+
+		target_host_addr = None
+		new_c_id = None
+		if (redirect_entry ):	# forward it to the next
+			(target_host_addr, new_c_id) = redirect_entry
+			redirect_tor61 = self.router_ip_to_tor_objs.get(target_host_addr)
+		
+			new_cell = struct.pack('>HB' + ('x' * 509), new_c_id, cell_type)
+			# print "forwarding packet ", new_cell
+			self.forwardToTor61(redirect_tor61, new_cell)
+			
+		tor61connection = self.router_ip_to_tor_objs[tor61_partner_ip_port]
+		
+		#remove circuit from both ends
+
+		tor61connection.removeCircuit(c_id)
+
+		self.routing_table.pop((tor61_partner_ip_port, c_id))
+		if(target_host_addr):
+			redirect_tor61.removeCircuit(new_c_id)
+			self.routing_table.pop((target_host_addr, new_c_id))
+
+
 
 	def handleRelay(self, cell, tor61_partner_ip_port):
 
@@ -283,7 +324,9 @@ class TorRouter(object):
 			print "Recieved RELAY_DATA, cid: ", c_id, " stream_id: ", stream_id
 
 			stream_obj = tor61connection.getCircuit(c_id).getStream(stream_id)
-			stream_obj.sendAllToProxy(body)
+			retval= stream_obj.sendAllToProxy(body)
+			if (retval < 0):
+				print "stream_obj is dead"
 
 		elif (relay_cmd == TorRouter.RELAY_END):			# for stream
 			print "Recieved RELAY_END, cid: ", c_id, " stream_id: ", stream_id
@@ -301,22 +344,27 @@ class TorRouter(object):
 			print "Recieved RELAY_EXTEND, cid: ", c_id, " stream_id: ", stream_id
 
 			tcp_host, temp = body.split(':')
-			tcp_host_port, host_agent_id = temp.split('\0')
+			tcp_host_port, opened_agent_id = temp.split('\0')
 			tcp_host_port = int(tcp_host_port)
 			tor61 = self.findTor61Connection((tcp_host, tcp_host_port))
 			circuit_obj = None
 			print "!!!!! [handleRelay] Circuit ID from sender is ", c_id,
 			if (tor61):
+				self.router_ip_to_tor_objs[(tcp_host, tcp_host_port)] = tor61
 				retval, circuit_obj = tor61.sendCreate(False)
+
 				print "!!!!! [handleRelay] Circuit ID to destination is ", circuit_obj.getCid(),
 
 				self.routing_table[(tor61_partner_ip_port, c_id)] = (tor61.partner_ip_port, circuit_obj.getCid())
 				self.routing_table[(tor61.partner_ip_port, circuit_obj.getCid())] = (tor61_partner_ip_port, c_id)
 			else: 
 				# THERES BUGS HERE
-				socket = createTCPConnection((tcp_host, tcp_host_port))
-				(retval, tor61) = self.createTor61Connection((tcp_host, tcp_host_port))
+				socket = TorRouter.createTCPConnection((tcp_host, tcp_host_port))
+				(retval, tor61) = self.createTor61Connection((tcp_host, tcp_host_port), socket, True, opener_agent_id=self.agent_id, opened_agent_id=opened_agent_id)
+
+				self.router_ip_to_tor_objs[(tcp_host, tcp_host_port)] = tor61
 				retval, circuit_obj = tor61.sendCreate(False)
+
 				print "!!!!! [handleRelay ELSE] Circuit ID to destination is ", circuit_obj.getCid(),
 
 				self.routing_table[(tor61_partner_ip_port, c_id)] = (tor61.partner_ip_port, circuit_obj.getCid())
@@ -367,7 +415,10 @@ class TorRouter(object):
 
 	# return this tor connection if exists, otherwise None
 	def findTor61Connection(self, partner_host_address):
-		return self.router_ip_to_tor_objs[partner_host_address]
+		try: 
+			return self.router_ip_to_tor_objs[partner_host_address]
+		except KeyError as e:
+			return None
 
 	@staticmethod
 	def createTCPConnection(partner_host_addr):
@@ -380,14 +431,13 @@ class TorRouter(object):
 		# establish Tor61 connection for the circuit from source router
 		tor61connection = Tor61Connection(partner_host_addr, socket, we_are_initiator)
 		tor61connection.addOnRelayHandler(self.handleRelay)
+		tor61connection.addOnDestroyHandler(self.onDestroyCell)
 		if (we_are_initiator):
 			retval = tor61connection.startAsOpener(kwargs['opener_agent_id'], kwargs['opened_agent_id'])
 		else:
 			retval = tor61connection.startAsOpened() 	# blocking call. waiting for open
 		if (retval > 0):
-			print "adding entry to router_ip_to_tor_objs: ", partner_host_addr
 			self.router_ip_to_tor_objs[partner_host_addr] = tor61connection
-			print "does it work? ", self.findTor61Connection(partner_host_addr)
 			# loop the above until this successes...(but do we listen for tor61 is not sucess??)
 
 

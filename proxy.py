@@ -22,7 +22,7 @@ class TorProxy(object):
 	SLEEP_TIME_BETWEEN_RECEIVING_DATA = 0.1
 	TIMEOUT = 60*10 # seconds
 	SERVER_TIMEOUT = 60*10 # seconds
-	SOCKET_RECV_SIZE = 256
+	SOCKET_RECV_SIZE = 1024
 	TIME_THRESHOLD = 10 * 60
 
 	class State(object):
@@ -167,7 +167,10 @@ class TorProxy(object):
 		else:	# not HTTP CONNECT
 			# print "header: " + header_buffer
 			print "connect tunneling"
-			stream_obj.sendAllToRouter(header_buffer + "\r\n")
+			retval = stream_obj.sendAllToRouter(header_buffer + "\r\n")
+			if (retval < 0):
+				print " when sendAllToRouter, stream_obj is close. Proxy line: 172"
+				thisConnection['isClosed']
 			# stream_obj.closeStream()
 			# return
 
@@ -200,6 +203,8 @@ class TorProxy(object):
 	def timeout_function(connection):
 		connection['isClosed'] = True
 
+	def exit(self):
+		pass
 
 	# a thread for tunnel from client -> proxy -> server
 	def handle_forwarding_to_router(self, thisConnection):
@@ -215,7 +220,10 @@ class TorProxy(object):
 			if data:
 				# thisConnection['hostsocket'].sendall(data)
 				# TODO: Write to buffer to router side
-				stream_obj.sendAllToRouter(data)
+				retval = stream_obj.sendAllToRouter(data)
+				if (retval < 0):
+					print " when sendAllToRouter, stream_obj is close. Proxy line: 223"
+					thisConnection['isClosed']
 				thisConnection['prev_time'] = time.time()
 			elif thisConnection['isClosed']:
 				break
@@ -270,7 +278,10 @@ class TorProxy(object):
 			data = thisConnection['hostsocket'].recv(TorProxy.SOCKET_RECV_SIZE)
 			# print "$$$$$$$$$$$$$$$$$ READ FROM SERVER: ", data
 			if data: 
-				thisConnection['stream_obj'].sendAllToRouter(data)
+				retval = thisConnection['stream_obj'].sendAllToRouter(data)
+				if (retval < 0):
+					print " when sendAllToRouter, stream_obj is close. Proxy line: 281"
+					thisConnection['isClosed']
 				thisConnection['prev_time'] = time.time()
 			else:
 				thisConnection['isClosed'] = True
@@ -280,7 +291,7 @@ class TorProxy(object):
 		# except Exception as e:
 		# 	pprint(e)
 		# finally:
-			# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
+		# print "FINALLY end thread handle_client host: " + host + ": " + str(hostport)
 		thisConnection['hostsocket'].close()
 		thisConnection['stream_obj'].closeStream()
 		terminate()
@@ -291,12 +302,10 @@ class TorProxy(object):
 		# try:
 		while time.time() - thisConnection['prev_time'] < TorProxy.TIME_THRESHOLD:
 			time.sleep(TorProxy.SLEEP_TIME_BETWEEN_RECEIVING_DATA)
-			# data = hostsocket.recv(SOCKET_RECV_SIZE)
 			data = thisConnection['stream_obj'].getNextFromRouter()
 			#print "WRITE TO SERVER ", data
 			if data: 
 				thisConnection['hostsocket'].sendall(data)
-				# data = stream_obj.getNextFromRouter()
 				thisConnection['prev_time'] = time.time()
 			else:
 				thisConnection['isClosed'] = True
