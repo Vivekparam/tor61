@@ -166,7 +166,7 @@ class TorProxy(object):
 			connect_handle_thread.start()
 		else:	# not HTTP CONNECT
 			# print "header: " + header_buffer
-			print "connect tunneling"
+			print "NOT connect tunneling"
 			retval = stream_obj.sendAllToRouter(header_buffer + "\r\n")
 			if (retval < 0):
 				print " when sendAllToRouter, stream_obj is close. Proxy line: 172"

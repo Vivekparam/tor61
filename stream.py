@@ -107,15 +107,11 @@ class TorStream(object):
 			print "stream ", self.streamNum, " is not running"
 			return -1
 		entire_data = data
-		print "LENGTH OF INITIAL DATA IS: ", len(entire_data)
 
 		while(len(entire_data) > 0):
 			data = entire_data[:400]
 			# print "SENDDDDDDING FROM CLIENT TO ROUTER: ", data 
 			zeroes = 0x0000
-			# print 'padding length of ' + str(Tor61Connection.PADDING_RELAY - kwargs['body_length'])
-			# print 'body length of ' + str(len( kwargs['body']))
-			
 			body = data
 			body_len = len(data)
 			cell = struct.pack('>HBHHIHB%ds' % (body_len,) + ('x' * (TorStream.PADDING_RELAY - body_len)) , self.c_id, TorStream.CELL_TYPE_RELAY, self.streamNum, 
@@ -134,7 +130,6 @@ class TorStream(object):
 			self.bufferToRouter.put(cell)
 			# pprint(self.bufferToRouter)
 			entire_data = entire_data[400:]
-			print "LENGTH OF REMAINING DATA IS: ", len(entire_data), " while body_len: ", body_len
 			time.sleep(0.1)
 		return 1
 

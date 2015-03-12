@@ -35,11 +35,7 @@ def terminate(router):
 	router.killRouter()
 	return
 
-def main():
-		# Create thread which reads from stdin
-	# user_input_thread = threading.Thread(target=readForEof)
-	# user_input_thread.setDaemon(True)
-	# user_input_thread.start()
+def start():
 	global proxy
 	global router
 	proxy = TorProxy()
@@ -56,10 +52,19 @@ def main():
 	
 	ret = router.start()
 	if(ret < 0) :
-		print "Error starting router."
+		print "Error starting router: ", ret
 		terminate(router)
 		exit()
 
+
+def main():
+	server_connection_thread = threading.Thread(target=start)
+	server_connection_thread.setDaemon(True)
+	server_connection_thread.start()
+	# Create thread which reads from stdin
+	# user_input_thread = threading.Thread(target=readForEof)
+	# user_input_thread.setDaemon(True)
+	# user_input_thread.start()
 	try: 
 		while True:
 			uin = sys.stdin.readline().strip()
