@@ -50,7 +50,7 @@ class TorRouter(object):
 		self.next_socket_num_lock = threading.Lock()
 		self.router_ip_to_tor_objs_lock = threading.Lock()
 		self.routing_table_lock = threading.Lock()
-		self.connecting_to_tor_routers = self.group_number #self.group_number #"7244"
+		self.connecting_to_tor_routers = '' #self.group_number #"7244"
 
 	def addPartnerToRouterIPTorMap(self, partner_host_addr, tor61connection):
 		self.router_ip_to_tor_objs_lock.acquire()
